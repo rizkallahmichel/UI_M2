@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
-import type { CollectSessionResponse, Participant } from '../types'
+import type { CollectSessionResponse, Participant, SessionCapturePayload, SessionMetadata } from '../types'
 
 type EnrollmentWizardProps = {
   participant?: Participant
   participants: Participant[]
   onSelectParticipant: (id: string) => void
-  onCapture: () => Promise<CollectSessionResponse>
+  onCapture: (payload: SessionCapturePayload) => Promise<CollectSessionResponse>
   isCapturing: boolean
   latestSession: CollectSessionResponse | null
   errorMessage?: string
@@ -29,12 +29,43 @@ const EnrollmentWizard = ({
   const [sessionSummary, setSessionSummary] = useState<CollectSessionResponse | null>(null)
   const [captureError, setCaptureError] = useState<string | null>(null)
   const [captureComplete, setCaptureComplete] = useState(false)
+  const [metadataDraft, setMetadataDraft] = useState<SessionMetadata>({})
+  const [tagsInput, setTagsInput] = useState('')
+  const [notes, setNotes] = useState('')
+
+  const formatNumber = (value?: number, digits = 2) => (value != null && Number.isFinite(value) ? value.toFixed(digits) : '—')
+
+  const buildCapturePayload = (): SessionCapturePayload => {
+    const trimmedMetadata: SessionMetadata = {
+      activityLabel: metadataDraft.activityLabel?.trim() || undefined,
+      stressLevel: metadataDraft.stressLevel?.trim() || undefined,
+      sensorPlacement: metadataDraft.sensorPlacement?.trim() || undefined,
+      deviceModel: metadataDraft.deviceModel?.trim() || undefined,
+    }
+    const hasMetadata = Object.values(trimmedMetadata).some((value) => value && value.length > 0)
+    const tags = tagsInput
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0)
+    const trimmedNotes = notes.trim()
+    const payload: SessionCapturePayload = {}
+    if (hasMetadata) payload.metadata = trimmedMetadata
+    if (tags.length > 0) payload.tags = tags
+    if (trimmedNotes.length > 0) payload.notes = trimmedNotes
+    return payload
+  }
 
   useEffect(() => {
     if (latestSession && !isCapturing) {
       setSessionSummary(latestSession)
     }
   }, [latestSession, isCapturing])
+
+  useEffect(() => {
+    setMetadataDraft({})
+    setTagsInput('')
+    setNotes('')
+  }, [participant?.id])
 
   useEffect(() => {
     if (step !== 'capture') return
@@ -75,7 +106,7 @@ const EnrollmentWizard = ({
     setStep('capture')
 
     try {
-      const session = await onCapture()
+      const session = await onCapture(buildCapturePayload())
       setPendingSession(session)
     } catch (error) {
       setCaptureError(error instanceof Error ? error.message : 'Failed to capture ECG session.')
@@ -87,12 +118,36 @@ const EnrollmentWizard = ({
     if (!sessionSummary?.features) return []
     const { features } = sessionSummary
     return [
-      { label: 'Estimated BPM', value: features.estimatedBpm.toFixed(1) },
-      { label: 'Peak count', value: features.peakCount.toString() },
-      { label: 'Mean ± Std', value: `${features.mean.toFixed(3)} ± ${features.std.toFixed(3)}` },
-      { label: 'HRV (RMSSD)', value: `${features.hrvDailyRmssd?.toFixed(1) ?? '—'} ms` },
-      { label: 'Signal quality', value: features.signalQuality.toUpperCase() },
+      { label: 'Estimated BPM', value: formatNumber(features.estimatedBpm, 1) },
+      { label: 'Peak count', value: Number.isFinite(features.peakCount) ? features.peakCount.toString() : '—' },
+      { label: 'Mean ± Std', value: `${formatNumber(features.mean, 3)} ± ${formatNumber(features.std, 3)}` },
+      { label: 'RR mean / std', value: `${formatNumber(features.rrMeanMs, 0)} ms / ${formatNumber(features.rrStdMs, 0)} ms` },
+      { label: 'QRS width', value: `${formatNumber(features.qrsWidthMs, 1)} ms` },
+      { label: 'HRV (RMSSD)', value: `${formatNumber(features.hrvDailyRmssd, 1)} ms` },
+      {
+        label: 'Signal quality',
+        value: `${features.signalQuality.toUpperCase()} (${formatNumber(features.signalQualityScore, 2)})`,
+      },
+      { label: 'Motion artifact', value: formatNumber(features.motionArtifactIndex, 2) },
+      { label: 'Baseline drift', value: formatNumber(features.baselineDriftRatio, 2) },
     ]
+  }, [sessionSummary])
+
+  const surveySummary = useMemo(() => {
+    if (!sessionSummary) {
+      return { metadataEntries: [], tags: '—', notes: '—', hasData: false }
+    }
+    const metadata = sessionSummary.metadata ?? {}
+    const metadataEntries = [
+      { label: 'Activity', value: metadata.activityLabel ?? '—' },
+      { label: 'Stress', value: metadata.stressLevel ?? '—' },
+      { label: 'Sensor placement', value: metadata.sensorPlacement ?? '—' },
+      { label: 'Device model', value: metadata.deviceModel ?? '—' },
+    ]
+    const tagsValue = sessionSummary.tags.length ? sessionSummary.tags.join(', ') : '—'
+    const notesValue = sessionSummary.notes ?? '—'
+    const hasData = metadataEntries.some((entry) => entry.value !== '—') || tagsValue !== '—' || notesValue !== '—'
+    return { metadataEntries, tags: tagsValue, notes: notesValue, hasData }
   }, [sessionSummary])
 
   return (
@@ -129,6 +184,59 @@ const EnrollmentWizard = ({
             <li>Check the watch fit and confirm the watch is on the Fitbit ECG screen.</li>
             <li>Start the Fitbit ECG reading and tap “Start capture” below.</li>
           </ul>
+          <div className="survey-form">
+            <h4>ECG biometric survey</h4>
+            <div className="survey-grid">
+              <label>
+                <span>Activity label</span>
+                <input
+                  value={metadataDraft.activityLabel ?? ''}
+                  placeholder="e.g. resting, post-run"
+                  onChange={(event) => setMetadataDraft((prev) => ({ ...prev, activityLabel: event.target.value }))}
+                />
+              </label>
+              <label>
+                <span>Stress level</span>
+                <input
+                  value={metadataDraft.stressLevel ?? ''}
+                  placeholder="e.g. calm, elevated"
+                  onChange={(event) => setMetadataDraft((prev) => ({ ...prev, stressLevel: event.target.value }))}
+                />
+              </label>
+              <label>
+                <span>Sensor placement</span>
+                <input
+                  value={metadataDraft.sensorPlacement ?? ''}
+                  placeholder="e.g. left wrist"
+                  onChange={(event) => setMetadataDraft((prev) => ({ ...prev, sensorPlacement: event.target.value }))}
+                />
+              </label>
+              <label>
+                <span>Device model</span>
+                <input
+                  value={metadataDraft.deviceModel ?? ''}
+                  placeholder="e.g. Charge 6"
+                  onChange={(event) => setMetadataDraft((prev) => ({ ...prev, deviceModel: event.target.value }))}
+                />
+              </label>
+            </div>
+            <label>
+              <span>Tags (comma separated)</span>
+              <input
+                value={tagsInput}
+                placeholder="e.g. seated, watch loose"
+                onChange={(event) => setTagsInput(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Operator notes</span>
+              <textarea
+                value={notes}
+                placeholder="Optional context or quality notes"
+                onChange={(event) => setNotes(event.target.value)}
+              />
+            </label>
+          </div>
           <button className="primary" disabled={isCapturing} onClick={startCapture}>
             {isCapturing ? 'Capturing…' : 'Start capture'}
           </button>
@@ -178,6 +286,33 @@ const EnrollmentWizard = ({
                   </article>
                 ))}
               </div>
+              <div className="survey-summary">
+                <h4>Survey responses</h4>
+                {surveySummary.hasData ? (
+                  <>
+                    <div className="survey-summary-grid">
+                      {surveySummary.metadataEntries.map((entry) => (
+                        <article key={entry.label}>
+                          <p className="card-title">{entry.label}</p>
+                          <p className="card-value">{entry.value}</p>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="survey-notes">
+                      <div>
+                        <p className="card-title">Tags</p>
+                        <p className="card-value">{surveySummary.tags}</p>
+                      </div>
+                      <div>
+                        <p className="card-title">Operator notes</p>
+                        <p className="card-value multi-line">{surveySummary.notes}</p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p>No survey responses captured.</p>
+                )}
+              </div>
               {sessionSummary.features.signalQuality === 'poor' && (
                 <p className="warning-text">
                   Signal quality flagged as POOR. Ask the participant to re-seat the watch and repeat the recording.
@@ -197,3 +332,6 @@ const EnrollmentWizard = ({
 }
 
 export default EnrollmentWizard
+
+
+

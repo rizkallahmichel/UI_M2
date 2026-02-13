@@ -1,18 +1,29 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import './App.css'
-import { fetchSessions, collectSession, trainModel, verifyAttempt } from './api/client'
-import type { CollectSessionResponse, ModelTrainingResult, Participant, VerifyAttempt, EcgSessionRecord } from './types'
+import { fetchSessions, collectSession, trainModel, verifyAttempt, runContinuousVerify } from './api/client'
+import type {
+  CollectSessionResponse,
+  ModelTrainingResult,
+  Participant,
+  VerifyAttempt,
+  EcgSessionRecord,
+  SessionCapturePayload,
+  ContinuousVerifyResponse,
+  ContinuousVerifyOptions,
+} from './types'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import ParticipantsTab from './components/ParticipantsTab'
 import EnrollmentWizard from './components/EnrollmentWizard'
 import VerificationPanel from './components/VerificationPanel'
 import AnalyticsTab from './components/AnalyticsTab'
+import ContinuousMonitor from './components/ContinuousMonitor'
 
 const tabs = [
   { id: 'participants', label: 'Participants' },
   { id: 'enrollment', label: 'Enrollment' },
   { id: 'verification', label: 'Verification' },
+  { id: 'continuous', label: 'Continuous' },
   { id: 'analytics', label: 'Analytics' },
 ] as const
 
@@ -61,6 +72,7 @@ function App() {
   const [lastTrainedAt, setLastTrainedAt] = useState<string | undefined>()
   const [aliasMap, setAliasMap] = useLocalStorage<Record<string, string>>('ui:fitbit-aliases', {})
   const [analyticsUpdatedAt, setAnalyticsUpdatedAt] = useState<string | undefined>()
+  const [continuousResult, setContinuousResult] = useState<ContinuousVerifyResponse | null>(null)
   const queryClient = useQueryClient()
 
   const sessionsQuery = useQuery({
@@ -106,18 +118,12 @@ function App() {
 
   const selectedParticipant = participants.find((p) => p.id === selectedParticipantId)
 
-  const collectMutation = useMutation({
-    mutationFn: collectSession,
+  const collectMutation = useMutation<CollectSessionResponse, Error, SessionCapturePayload>({
+    mutationFn: (payload) => collectSession(payload),
     onSuccess: (session) => {
       setLatestSession(session)
       queryClient.setQueryData<EcgSessionRecord[]>(['sessions'], (prev) => {
-        const next: EcgSessionRecord = {
-          documentId: session.documentId,
-          fitbitUserId: session.fitbitUserId,
-          ecgStartTime: session.ecgStartTime,
-          hrvDailyRmssd: session.hrvDailyRmssd,
-          features: session.features,
-        }
+        const next: EcgSessionRecord = { ...session }
         return prev ? [...prev, next] : [next]
       })
       setActiveTab('enrollment')
@@ -139,6 +145,14 @@ function App() {
       setLatestVerify(attempt)
       setAttemptLogs((prev) => [attempt, ...prev].slice(0, 400))
       setActiveTab('verification')
+    },
+  })
+
+  const continuousMutation = useMutation({
+    mutationFn: (params: ContinuousVerifyOptions) => runContinuousVerify(params),
+    onSuccess: (result) => {
+      setContinuousResult(result)
+      setActiveTab('continuous')
     },
   })
 
@@ -164,12 +178,20 @@ function App() {
     trainMutation.mutate(maxPairs)
   }
 
+  const handleContinuousRun = (params: ContinuousVerifyOptions) => {
+    continuousMutation.mutate(params)
+  }
+
   const tabLabel = (tabId: TabId) => {
     switch (tabId) {
       case 'participants':
         return `${tabs.find((t) => t.id === tabId)?.label ?? 'Participants'} (${participants.length})`
       case 'analytics':
         return `${tabs.find((t) => t.id === tabId)?.label ?? 'Analytics'} (${attemptLogs.length})`
+      case 'continuous':
+        return `${tabs.find((t) => t.id === tabId)?.label ?? 'Continuous'} (${
+          continuousResult?.samples.length ?? 0
+        })`
       default:
         return tabs.find((t) => t.id === tabId)?.label ?? tabId
     }
@@ -223,7 +245,7 @@ function App() {
             participant={selectedParticipant}
             onSelectParticipant={setSelectedParticipantId}
             participants={participants}
-            onCapture={() => collectMutation.mutateAsync()}
+            onCapture={(payload) => collectMutation.mutateAsync(payload)}
             isCapturing={collectMutation.isPending}
             latestSession={latestSession}
             errorMessage={collectMutation.error instanceof Error ? collectMutation.error.message : undefined}
@@ -248,6 +270,14 @@ function App() {
             attempts={attemptLogs}
             participants={participants}
             lastRefreshed={analyticsUpdatedAt}
+          />
+        )}
+
+        {activeTab === 'continuous' && (
+          <ContinuousMonitor
+            latestResult={continuousResult}
+            isRunning={continuousMutation.isPending}
+            onRun={handleContinuousRun}
           />
         )}
       </section>

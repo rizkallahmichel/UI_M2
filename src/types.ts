@@ -17,6 +17,19 @@ export interface Participant {
   modelStatus?: ParticipantModelStatus;
 }
 
+export interface SessionMetadata {
+  activityLabel?: string;
+  stressLevel?: string;
+  sensorPlacement?: string;
+  deviceModel?: string;
+}
+
+export interface SessionCapturePayload {
+  metadata?: SessionMetadata;
+  tags?: string[];
+  notes?: string;
+}
+
 export interface EcgFeatureSet {
   estimatedBpm: number;
   peakCount: number;
@@ -27,6 +40,18 @@ export interface EcgFeatureSet {
   max: number;
   skewness: number;
   kurtosis: number;
+  rrMeanMs: number;
+  rrStdMs: number;
+  qrsWidthMs: number;
+  lowFreqPowerRatio: number;
+  midFreqPowerRatio: number;
+  highFreqPowerRatio: number;
+  spectralCentroidHz: number;
+  spectralEntropy: number;
+  veryLowFreqPowerRatio: number;
+  motionArtifactIndex: number;
+  baselineDriftRatio: number;
+  signalQualityScore: number;
   hrvDailyRmssd: number;
   signalQuality: SignalQuality;
 }
@@ -37,12 +62,22 @@ export interface CollectSessionResponse {
   ecgStartTime?: string;
   hrvDailyRmssd?: number;
   features: EcgFeatureSet;
+  metadata?: SessionMetadata;
+  waveformPreview: number[];
+  signalQualityScore: number;
+  motionArtifactIndex: number;
+  baselineDriftRatio: number;
+  samplingHz: number;
+  scalingFactor: number;
+  tags: string[];
+  notes?: string;
 }
 
 export type EcgSessionRecord = CollectSessionResponse;
 
 export interface ModelTrainingResult {
   modelPath: string;
+  correctionModelPath?: string;
   accuracy: number;
   areaUnderRocCurve: number;
   f1Score: number;
@@ -77,4 +112,24 @@ export interface AnalyticsSnapshot {
   frr: number;
   eerEstimate: number;
   lastUpdated: string;
+}
+
+export interface ContinuousVerifySample {
+  windowStartUtc: string;
+  windowEndUtc: string;
+  score: number;
+  passes: boolean;
+}
+
+export interface ContinuousVerifyResponse {
+  authenticated: boolean;
+  rollingMeanScore: number;
+  rollingWorstScore: number;
+  samples: ContinuousVerifySample[];
+}
+
+export interface ContinuousVerifyOptions {
+  threshold: number;
+  windowMinutes: number;
+  strideMinutes: number;
 }
