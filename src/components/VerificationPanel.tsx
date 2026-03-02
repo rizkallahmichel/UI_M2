@@ -35,6 +35,42 @@ const VerificationPanel = ({
     setNotes(latestResult?.notes ?? '')
   }, [latestResult?.id, latestResult?.notes])
 
+  const totalComparisons = latestResult?.comparisons.length ?? 0
+
+  const metrics = useMemo(() => {
+    if (!latestResult) return []
+    const consensus = latestResult.consensusScore ?? latestResult.score
+    return [
+      {
+        title: 'Consensus score',
+        value: consensus.toFixed(2),
+        hint: 'Mean of top baseline matches',
+      },
+      {
+        title: 'Passing votes',
+        value: `${latestResult.passingVotes ?? 0}/${totalComparisons}`,
+        hint: totalComparisons > 0 ? 'Baseline sessions >= threshold' : 'Collect enrollment baselines first',
+      },
+      {
+        title: 'HRV (RMSSD)',
+        value: latestResult.hrv != null ? `${latestResult.hrv.toFixed(1)} ms` : 'N/A',
+        hint: latestResult.hrv != null ? 'Fitbit daily HRV at capture' : 'HRV unavailable for this attempt',
+      },
+    ]
+  }, [latestResult, totalComparisons])
+
+  const confidenceSummary = useMemo(() => {
+    if (!latestResult?.confidence) return null
+    const level = Math.min(1, Math.max(0, latestResult.confidence.confidenceLevel))
+    const drift = Math.max(0, latestResult.confidence.drift)
+    return {
+      levelPercentLabel: `${(level * 100).toFixed(0)}%`,
+      driftPercentLabel: `${(drift * 100).toFixed(1)}%`,
+      fillWidth: level * 100,
+      passes: latestResult.confidence.consecutivePasses,
+    }
+  }, [latestResult?.confidence])
+
   const sweepResults = useMemo(
     () =>
       thresholds.map((value) => ({
@@ -124,6 +160,43 @@ const VerificationPanel = ({
         {latestResult ? (
           <>
             <ScoreMeter score={latestResult.score} threshold={latestResult.threshold} />
+            <div className="result-flags">
+              <span className={clsx('status-pill', latestResult.passed ? 'online' : 'offline')}>
+                {latestResult.passed ? 'Authenticated' : 'Rejected'}
+              </span>
+              <span
+                className={clsx('status-pill', {
+                  online: latestResult.label === 'genuine',
+                  offline: latestResult.label === 'impostor',
+                  neutral: !latestResult.label,
+                })}
+              >
+                {latestResult.label ? `${latestResult.label.toUpperCase()} attempt` : 'Unlabeled attempt'}
+              </span>
+            </div>
+            {metrics.length > 0 && (
+              <div className="cards-grid compact">
+                {metrics.map((metric) => (
+                  <article key={metric.title} className="card">
+                    <p className="card-title">{metric.title}</p>
+                    <p className="card-value">{metric.value}</p>
+                    <p className="card-hint">{metric.hint}</p>
+                  </article>
+                ))}
+                <article className="card confidence-card">
+                  <p className="card-title">Rolling confidence</p>
+                  <p className="card-value">{confidenceSummary ? confidenceSummary.levelPercentLabel : 'Need more attempts'}</p>
+                  <div className="confidence-meter">
+                    <div className="confidence-fill" style={{ width: `${confidenceSummary?.fillWidth ?? 0}%` }} />
+                  </div>
+                  <p className="card-hint">
+                    {confidenceSummary
+                      ? `Drift ${confidenceSummary.driftPercentLabel} | ${confidenceSummary.passes} pass streak`
+                      : 'Label attempts to unlock drift monitoring'}
+                  </p>
+                </article>
+              </div>
+            )}
             <div className="label-actions">
               <span>Mark attempt as</span>
               <button
@@ -187,6 +260,7 @@ const VerificationPanel = ({
                 <th>Participant</th>
                 <th>Score</th>
                 <th>Threshold</th>
+                <th>Confidence</th>
                 <th>Result</th>
                 <th>Label</th>
               </tr>
@@ -198,6 +272,7 @@ const VerificationPanel = ({
                   <td>{attempt.alias ?? attempt.participantId}</td>
                   <td>{attempt.score.toFixed(2)}</td>
                   <td>{attempt.threshold.toFixed(2)}</td>
+                  <td>{attempt.confidence ? `${(attempt.confidence.confidenceLevel * 100).toFixed(0)}%` : 'N/A'}</td>
                   <td>{attempt.passed ? 'PASS' : 'FAIL'}</td>
                   <td>{attempt.label ?? 'Unlabeled'}</td>
                 </tr>

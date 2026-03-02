@@ -85,6 +85,19 @@ export interface ModelTrainingResult {
   pairCount: number;
 }
 
+export interface ConfidenceSnapshot {
+  userId: string;
+  sampleCount: number;
+  rollingMean: number;
+  rollingStdDev: number;
+  exponentialMovingAverage: number;
+  drift: number;
+  confidenceLevel: number;
+  consecutivePasses: number;
+  consecutiveFailures: number;
+  updatedAtUtc: string;
+}
+
 export interface VerifyComparison {
   id: string;
   sessionLabel: string;
@@ -104,6 +117,9 @@ export interface VerifyAttempt {
   notes?: string;
   hrv?: number;
   comparisons: VerifyComparison[];
+  consensusScore?: number;
+  passingVotes?: number;
+  confidence?: ConfidenceSnapshot;
 }
 
 export interface AnalyticsSnapshot {

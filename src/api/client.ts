@@ -10,6 +10,7 @@ import type {
   SessionCapturePayload,
   ContinuousVerifyResponse,
   ContinuousVerifyOptions,
+  ConfidenceSnapshot,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5104';
@@ -113,6 +114,19 @@ interface CollectSessionApiResponse {
   notes?: string | null;
 }
 
+interface ConfidenceApiResponse {
+  userId?: string;
+  sampleCount?: number;
+  rollingMean?: number;
+  rollingStdDev?: number;
+  exponentialMovingAverage?: number;
+  drift?: number;
+  confidenceLevel?: number;
+  consecutivePasses?: number;
+  consecutiveFailures?: number;
+  updatedAtUtc?: string;
+}
+
 interface VerifyApiResponse {
   fitbitUserId: string;
   authenticated: boolean;
@@ -120,7 +134,10 @@ interface VerifyApiResponse {
   threshold: number;
   ecgStartTime?: string;
   hrvDailyRmssd?: number;
-  comparisonScores: number[];
+  comparisonScores?: number[];
+  consensusScore?: number;
+  passingVotes?: number;
+  confidence?: ConfidenceApiResponse | null;
 }
 
 interface ContinuousVerifyApiResponse {
@@ -172,6 +189,23 @@ const adaptTags = (tags?: Array<string | null>): string[] => {
     .filter((tag): tag is string => typeof tag === 'string' && tag.length > 0);
 };
 
+const adaptConfidenceSnapshot = (confidence?: ConfidenceApiResponse | null): ConfidenceSnapshot | undefined => {
+  if (!confidence) return undefined;
+  const updatedAt = sanitizeString(confidence.updatedAtUtc) ?? new Date().toISOString();
+  return {
+    userId: confidence.userId ?? 'unknown',
+    sampleCount: Math.max(0, Math.round(coerceNumber(confidence.sampleCount))),
+    rollingMean: coerceNumber(confidence.rollingMean),
+    rollingStdDev: coerceNumber(confidence.rollingStdDev),
+    exponentialMovingAverage: coerceNumber(confidence.exponentialMovingAverage),
+    drift: coerceNumber(confidence.drift),
+    confidenceLevel: coerceNumber(confidence.confidenceLevel),
+    consecutivePasses: Math.max(0, Math.round(coerceNumber(confidence.consecutivePasses))),
+    consecutiveFailures: Math.max(0, Math.round(coerceNumber(confidence.consecutiveFailures))),
+    updatedAtUtc: updatedAt,
+  };
+};
+
 const adaptCollectResponse = (data: CollectSessionApiResponse): CollectSessionResponse => {
   const features = normalizeFeatures(data.features ?? {}, data.hrvDailyRmssd);
   const signalQualityScore = coerceNumber(data.signalQualityScore);
@@ -206,6 +240,9 @@ const adaptVerifyResponse = (response: VerifyApiResponse): VerifyAttempt => {
     passed: response.authenticated,
     hrv: response.hrvDailyRmssd,
     comparisons: adaptVerifyComparisons(response.comparisonScores ?? []),
+    consensusScore: typeof response.consensusScore === 'number' ? response.consensusScore : undefined,
+    passingVotes: typeof response.passingVotes === 'number' ? response.passingVotes : undefined,
+    confidence: adaptConfidenceSnapshot(response.confidence),
   };
 };
 

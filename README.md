@@ -68,3 +68,16 @@ npm run preview      # serves the built app locally
 - Testing setup: `src/setupTests.ts` seeds jest-dom matchers for Vitest, while `playwright.config.ts` documents how the e2e environment is started.
 
 Keep this README synced with future changes (new tabs, data sources, or test commands). Update the commands/coverage targets whenever the CI process evolves.
+
+## Backend Sync Notes (March 2, 2026)
+- The FitServer repo (`../fyp_fitbit_server`) added `tools/plot_train_metrics.py` plus `docs/metrics/roc_curve.png` and `score_distribution.png` (commit `result display`, Feb 27, 2026). After running `dotnet test` or `dotnet run`, execute:
+
+  ```bash
+  cd ../fyp_fitbit_server
+  python tools/plot_train_metrics.py --scores bin/Debug/net9.0/reports/train_scores.csv --model-zip ecg_auth_model.zip --output-dir docs/metrics
+  ```
+
+  Copy the resulting PNGs into `UI/public/metrics` (a `.gitkeep` file keeps the folder tracked). The Analytics tab auto-loads them in the "Training visuals" gallery.
+
+- `/api/ecg-auth/verify` now returns `consensusScore`, `passingVotes`, and a `confidence` snapshot per attempt. The Verification tab surfaces these values (top-k consensus, vote count, Fitbit HRV, and rolling confidence meter) so you can immediately tell whether the attempt looks like a genuine user or an impostor.
+- The Analytics tab now includes a scatter plot that separates genuine vs impostor labels, plus FAR/FRR cards that update as you mark attempts. Labeling attempts is what feeds the backend confidence model and the new visualization.

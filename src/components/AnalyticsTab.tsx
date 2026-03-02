@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import {
   Bar,
@@ -7,7 +7,10 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -22,6 +25,8 @@ type AnalyticsTabProps = {
 }
 
 const AnalyticsTab = ({ attempts, participants, lastRefreshed, onRefresh }: AnalyticsTabProps) => {
+  const [rocAvailable, setRocAvailable] = useState(true)
+  const [histAvailable, setHistAvailable] = useState(true)
   const sortedAttempts = useMemo(
     () => [...attempts].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()),
     [attempts],
@@ -58,6 +63,36 @@ const AnalyticsTab = ({ attempts, participants, lastRefreshed, onRefresh }: Anal
       fail: impostorAttempts.filter((attempt) => !attempt.passed).length,
     },
   ]
+
+  const latestConfidence = attempts.find((attempt) => attempt.confidence)?.confidence
+  const confidenceLevelDisplay = latestConfidence ? `${(latestConfidence.confidenceLevel * 100).toFixed(0)}%` : 'N/A'
+  const driftDisplay = latestConfidence ? `${(latestConfidence.drift * 100).toFixed(1)}%` : 'N/A'
+
+  const scatterBase = useMemo(
+    () =>
+      sortedAttempts.map((attempt, index) => ({
+        index,
+        score: Number(attempt.score.toFixed(3)),
+        alias: attempt.alias ?? attempt.participantId,
+        label: attempt.label ?? 'unlabeled',
+        passed: attempt.passed,
+        threshold: Number(attempt.threshold.toFixed(3)),
+      })),
+    [sortedAttempts],
+  )
+
+  const scatterSeries = useMemo(
+    () => ({
+      genuine: scatterBase.filter((point) => point.label === 'genuine'),
+      impostor: scatterBase.filter((point) => point.label === 'impostor'),
+      unlabeled: scatterBase.filter((point) => point.label !== 'genuine' && point.label !== 'impostor'),
+    }),
+    [scatterBase],
+  )
+
+  const avgThreshold = attempts.length
+    ? attempts.reduce((sum, attempt) => sum + attempt.threshold, 0) / attempts.length
+    : 0.85
 
   return (
     <div className="panel analytics-panel">
@@ -99,6 +134,13 @@ const AnalyticsTab = ({ attempts, participants, lastRefreshed, onRefresh }: Anal
           <p className="card-value">{(eer * 100).toFixed(1)}%</p>
           <p className="card-hint">Approximate equal-error threshold</p>
         </article>
+        <article className="card">
+          <p className="card-title">Confidence</p>
+          <p className="card-value">{confidenceLevelDisplay}</p>
+          <p className="card-hint">
+            {latestConfidence ? `Drift ${driftDisplay}` : 'Label attempts to enable drift monitoring'}
+          </p>
+        </article>
       </section>
 
       <section className="chart-section">
@@ -123,6 +165,47 @@ const AnalyticsTab = ({ attempts, participants, lastRefreshed, onRefresh }: Anal
 
       <section className="chart-section">
         <header>
+          <h3>Genuine vs impostor tests</h3>
+          <p>Each point is a verification attempt colored by the operator label.</p>
+        </header>
+        <div className="chart-container">
+          <ResponsiveContainer width="100%" height={280}>
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis
+                dataKey="index"
+                name="Attempt #"
+                tickFormatter={(value) => (Number(value) + 1).toString()}
+              />
+              <YAxis dataKey="score" domain={[0, 1]} name="Score" />
+              <Tooltip
+                cursor={{ strokeDasharray: '3 3' }}
+                formatter={(value, name) => {
+                  const numericValue = Number(value)
+                  if (name === 'score') return [numericValue.toFixed(2), 'Score']
+                  if (name === 'index') return [Math.round(numericValue + 1), 'Attempt #']
+                  return [value, name as string]
+                }}
+                labelFormatter={(value) => `Attempt ${Number(value) + 1}`}
+              />
+              <Legend />
+              <ReferenceLine y={avgThreshold} stroke="#f97316" strokeDasharray="4 4" label="Avg threshold" />
+              {scatterSeries.genuine.length > 0 && (
+                <Scatter name="Genuine" data={scatterSeries.genuine} fill="#22c55e" />
+              )}
+              {scatterSeries.impostor.length > 0 && (
+                <Scatter name="Impostor" data={scatterSeries.impostor} fill="#ef4444" />
+              )}
+              {scatterSeries.unlabeled.length > 0 && (
+                <Scatter name="Unlabeled" data={scatterSeries.unlabeled} fill="#94a3b8" />
+              )}
+            </ScatterChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+
+      <section className="chart-section">
+        <header>
           <h3>Label distribution</h3>
           <p>Compare pass/fail outcomes for genuine vs impostor attempts.</p>
         </header>
@@ -138,6 +221,43 @@ const AnalyticsTab = ({ attempts, participants, lastRefreshed, onRefresh }: Anal
               <Bar dataKey="fail" stackId="a" fill="#ef4444" />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      </section>
+
+      <section className="chart-section">
+        <header>
+          <h3>Training visuals</h3>
+          <p>Drop FitServer docs/metrics PNGs into <code>public/metrics</code> to surface ROC and score plots.</p>
+        </header>
+        <div className="metrics-gallery">
+          {rocAvailable && (
+            <figure>
+              <img
+                src="/metrics/roc_curve.png"
+                alt="ROC curve from the latest model training run"
+                loading="lazy"
+                onError={() => setRocAvailable(false)}
+              />
+              <figcaption>ROC curve (docs/metrics/roc_curve.png)</figcaption>
+            </figure>
+          )}
+          {histAvailable && (
+            <figure>
+              <img
+                src="/metrics/score_distribution.png"
+                alt="Score distribution from the latest model training run"
+                loading="lazy"
+                onError={() => setHistAvailable(false)}
+              />
+              <figcaption>Score distribution (docs/metrics/score_distribution.png)</figcaption>
+            </figure>
+          )}
+          {!rocAvailable && !histAvailable && (
+            <p className="empty-state small">
+              Generate plots via <code>python tools/plot_train_metrics.py --scores bin/Debug/net9.0/reports/train_scores.csv</code> inside{' '}
+              <code>fyp_fitbit_server</code> and copy <code>docs/metrics/*.png</code> into <code>public/metrics</code>.
+            </p>
+          )}
         </div>
       </section>
     </div>

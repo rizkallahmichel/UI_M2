@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import VerificationPanel from '../VerificationPanel'
 import type { Participant, VerifyAttempt } from '../../types'
 
@@ -72,5 +72,35 @@ describe('VerificationPanel', () => {
     expect(screen.getByText('Baseline 1')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Genuine' }))
     expect(onLabelUpdate).toHaveBeenCalledWith(baseAttempt.id, 'genuine', undefined)
+  })
+
+  it('renders consensus, passing votes, and confidence details when available', () => {
+    const attemptWithConfidence: VerifyAttempt = {
+      ...baseAttempt,
+      consensusScore: 0.9,
+      passingVotes: 2,
+      confidence: {
+        userId: 'user-1',
+        sampleCount: 5,
+        rollingMean: 0.89,
+        rollingStdDev: 0.01,
+        exponentialMovingAverage: 0.88,
+        drift: 0.1,
+        confidenceLevel: 0.8,
+        consecutivePasses: 3,
+        consecutiveFailures: 0,
+        updatedAtUtc: '2026-02-24T12:00:00.000Z',
+      },
+    }
+
+    renderPanel({ latestResult: attemptWithConfidence, attempts: [attemptWithConfidence] })
+
+    expect(screen.getByText('Consensus score')).toBeVisible()
+    expect(screen.getByText('Passing votes')).toBeVisible()
+    expect(screen.getByText('2/2')).toBeVisible()
+    const confidenceCard = screen.getByText('Rolling confidence').closest('article')
+    expect(confidenceCard).not.toBeNull()
+    expect(within(confidenceCard as HTMLElement).getByText('80%')).toBeVisible()
+    expect(screen.getByText(/Drift 10.0%/i)).toBeVisible()
   })
 })
