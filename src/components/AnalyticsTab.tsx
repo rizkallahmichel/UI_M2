@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { format } from 'date-fns'
 import {
   Bar,
@@ -15,22 +15,80 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { Participant, VerifyAttempt } from '../types'
+import type {
+  EcgBenchmarkRequest,
+  EcgBenchmarkResponse,
+  ModelTrainingResult,
+  Participant,
+  VerifyAttempt,
+} from '../types'
 
 type AnalyticsTabProps = {
   attempts: VerifyAttempt[]
   participants: Participant[]
   lastRefreshed?: string
   onRefresh?: () => void
+  benchmark?: EcgBenchmarkResponse
+  benchmarkLoading?: boolean
+  benchmarkError?: string
+  onRunBenchmark?: (options?: EcgBenchmarkRequest) => void
+  benchmarkDefaults?: EcgBenchmarkRequest
+  lastTrainingResult?: ModelTrainingResult | null
 }
 
-const AnalyticsTab = ({ attempts, participants, lastRefreshed, onRefresh }: AnalyticsTabProps) => {
+const percentDisplay = (value?: number) => {
+  if (typeof value !== 'number') return '—'
+  return `${(value * 100).toFixed(1)}%`
+}
+
+const percentDelta = (wearable?: number, benchmarkValue?: number) => {
+  if (typeof wearable !== 'number' || typeof benchmarkValue !== 'number') return '—'
+  const delta = (wearable - benchmarkValue) * 100
+  const sign = delta > 0 ? '+' : ''
+  return `${sign}${delta.toFixed(1)} pp`
+}
+
+const countDisplay = (value?: number) => {
+  if (typeof value !== 'number') return '—'
+  return value.toLocaleString()
+}
+
+const countDelta = (wearable?: number, benchmarkValue?: number) => {
+  if (typeof wearable !== 'number' || typeof benchmarkValue !== 'number') return '—'
+  const delta = wearable - benchmarkValue
+  const sign = delta > 0 ? '+' : ''
+  return `${sign}${delta.toLocaleString()}`
+}
+
+const AnalyticsTab = ({
+  attempts,
+  participants,
+  lastRefreshed,
+  onRefresh,
+  benchmark,
+  benchmarkLoading,
+  benchmarkError,
+  onRunBenchmark,
+  benchmarkDefaults,
+  lastTrainingResult,
+}: AnalyticsTabProps) => {
   const [rocAvailable, setRocAvailable] = useState(true)
   const [histAvailable, setHistAvailable] = useState(true)
+  const [benchmarkPairs, setBenchmarkPairs] = useState<number>(benchmarkDefaults?.maxPairsPerUser ?? 600)
+  const [benchmarkSplit, setBenchmarkSplit] = useState<number>(benchmarkDefaults?.testFraction ?? 0.4)
   const sortedAttempts = useMemo(
     () => [...attempts].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()),
     [attempts],
   )
+
+  useEffect(() => {
+    if (benchmarkDefaults?.maxPairsPerUser) {
+      setBenchmarkPairs(benchmarkDefaults.maxPairsPerUser)
+    }
+    if (benchmarkDefaults?.testFraction) {
+      setBenchmarkSplit(benchmarkDefaults.testFraction)
+    }
+  }, [benchmarkDefaults])
 
   const timelineData = sortedAttempts.map((attempt) => ({
     time: format(new Date(attempt.timestamp), 'MMM d HH:mm'),
@@ -94,6 +152,26 @@ const AnalyticsTab = ({ attempts, participants, lastRefreshed, onRefresh }: Anal
     ? attempts.reduce((sum, attempt) => sum + attempt.threshold, 0) / attempts.length
     : 0.85
 
+  const totalFitbitSessions = useMemo(
+    () => participants.reduce((sum, participant) => sum + (participant.sessionCount ?? 0), 0),
+    [participants],
+  )
+
+  const stageOneMetrics = benchmark?.metrics
+  const stageTwoMetrics = lastTrainingResult ?? undefined
+  const stageComparisonReady = Boolean(stageOneMetrics && stageTwoMetrics)
+
+  const handleBenchmarkSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!onRunBenchmark) return
+    const maxPairsPerUser = Math.max(100, Math.round(benchmarkPairs / 50) * 50)
+    const testFraction = Math.min(0.8, Math.max(0.2, Number(benchmarkSplit.toFixed(2))))
+    onRunBenchmark({
+      maxPairsPerUser,
+      testFraction,
+    })
+  }
+
   return (
     <div className="panel analytics-panel">
       <header className="panel-header">
@@ -112,6 +190,144 @@ const AnalyticsTab = ({ attempts, participants, lastRefreshed, onRefresh }: Anal
           )}
         </div>
       </header>
+
+      <section className="comparison-section">
+        <header>
+          <h3>Stage comparison</h3>
+          <p>
+            Stage 1 reproduces the ECG-ID benchmark (Safie et al., 2024) for reproducible citation values. Stage 2 reflects
+            the live Fitbit Charge 6 deployment with drift detection and automatic retraining.
+          </p>
+        </header>
+        <div className="comparison-grid">
+          <article className="card stage-card stage-benchmark">
+            <p className="stage-heading">Stage 1 · Benchmark validation</p>
+            <p className="stage-highlight">{percentDisplay(stageOneMetrics?.accuracy)}</p>
+            <p className="card-hint">
+              {benchmark
+                ? `${benchmark.dataset.toUpperCase()} · ${countDisplay(benchmark.subjectCount)} subjects / ${countDisplay(benchmark.sessionCount)} sessions`
+                : 'ECG-ID subset (90 subjects / 310 sessions) · run benchmark to load live metrics'}
+            </p>
+            <ul className="stage-stats">
+              <li>
+                <span>Accuracy</span>
+                <strong>{percentDisplay(stageOneMetrics?.accuracy)}</strong>
+              </li>
+              <li>
+                <span>AUC</span>
+                <strong>{percentDisplay(stageOneMetrics?.areaUnderRocCurve)}</strong>
+              </li>
+              <li>
+                <span>F1 score</span>
+                <strong>{percentDisplay(stageOneMetrics?.f1Score)}</strong>
+              </li>
+              <li>
+                <span>Train/Test</span>
+                <strong>
+                  {percentDisplay(benchmark?.trainFraction)} / {percentDisplay(benchmark?.testFraction)}
+                </strong>
+              </li>
+              <li>
+                <span>Pairs trained</span>
+                <strong>{countDisplay(stageOneMetrics?.pairCount)}</strong>
+              </li>
+            </ul>
+          </article>
+          <article className="card stage-card stage-wearable">
+            <p className="stage-heading">Stage 2 · Wearable extension</p>
+            <p className="stage-highlight">{percentDisplay(stageTwoMetrics?.accuracy)}</p>
+            <p className="card-hint">
+              Fitbit Charge 6 collection with drift detection + automatic retraining (last <code>Train model</code> run).
+            </p>
+            <ul className="stage-stats">
+              <li>
+                <span>Participants synced</span>
+                <strong>{participants.length.toLocaleString()}</strong>
+              </li>
+              <li>
+                <span>Fitbit sessions</span>
+                <strong>{totalFitbitSessions.toLocaleString()}</strong>
+              </li>
+              <li>
+                <span>Pairs trained</span>
+                <strong>{countDisplay(stageTwoMetrics?.pairCount)}</strong>
+              </li>
+              <li>
+                <span>AUC</span>
+                <strong>{percentDisplay(stageTwoMetrics?.areaUnderRocCurve)}</strong>
+              </li>
+              <li>
+                <span>F1 score</span>
+                <strong>{percentDisplay(stageTwoMetrics?.f1Score)}</strong>
+              </li>
+            </ul>
+            {!stageTwoMetrics && <p className="stage-empty">Run “Train model” to populate wearable metrics.</p>}
+          </article>
+          <article className="card stage-card stage-delta">
+            <p className="stage-heading">Delta · Stage 2 − Stage 1</p>
+            <p className="stage-highlight">{stageComparisonReady ? percentDelta(stageTwoMetrics?.accuracy, stageOneMetrics?.accuracy) : '—'}</p>
+            <p className="card-hint">Positive deltas indicate the wearable pipeline outperforming the baseline.</p>
+            {stageComparisonReady ? (
+              <ul className="stage-stats">
+                <li>
+                  <span>Accuracy</span>
+                  <strong>{percentDelta(stageTwoMetrics?.accuracy, stageOneMetrics?.accuracy)}</strong>
+                </li>
+                <li>
+                  <span>AUC</span>
+                  <strong>{percentDelta(stageTwoMetrics?.areaUnderRocCurve, stageOneMetrics?.areaUnderRocCurve)}</strong>
+                </li>
+                <li>
+                  <span>F1 score</span>
+                  <strong>{percentDelta(stageTwoMetrics?.f1Score, stageOneMetrics?.f1Score)}</strong>
+                </li>
+                <li>
+                  <span>Pairs</span>
+                  <strong>{countDelta(stageTwoMetrics?.pairCount, stageOneMetrics?.pairCount)}</strong>
+                </li>
+                <li>
+                  <span>Sessions</span>
+                  <strong>{countDelta(stageTwoMetrics?.sessionCount, stageOneMetrics?.sessionCount)}</strong>
+                </li>
+              </ul>
+            ) : (
+              <p className="stage-empty">
+                Run the ECG-ID benchmark and wearable training to quantify deltas.
+              </p>
+            )}
+          </article>
+        </div>
+        <form className="benchmark-form" onSubmit={handleBenchmarkSubmit}>
+          <div className="benchmark-controls">
+            <label>
+              Max pairs per user
+              <input
+                type="number"
+                min={100}
+                max={1500}
+                step={50}
+                value={benchmarkPairs}
+                onChange={(event) => setBenchmarkPairs(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              Test fraction
+              <input
+                type="number"
+                min={0.2}
+                max={0.8}
+                step={0.05}
+                value={benchmarkSplit}
+                onChange={(event) => setBenchmarkSplit(Number(event.target.value))}
+              />
+            </label>
+          </div>
+          <button type="submit" className="primary" disabled={!onRunBenchmark || benchmarkLoading}>
+            {benchmarkLoading ? 'Running benchmark…' : 'Run ECG-ID benchmark'}
+          </button>
+        </form>
+        {benchmarkError && <p className="form-hint error">{benchmarkError}</p>}
+      </section>
 
       <section className="cards-grid">
         <article className="card">

@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import './App.css'
-import { fetchSessions, collectSession, trainModel, verifyAttempt, runContinuousVerify } from './api/client'
+import {
+  fetchSessions,
+  collectSession,
+  trainModel,
+  verifyAttempt,
+  runContinuousVerify,
+  benchmarkEcgId,
+} from './api/client'
 import type {
   CollectSessionResponse,
   ModelTrainingResult,
@@ -11,6 +18,8 @@ import type {
   SessionCapturePayload,
   ContinuousVerifyResponse,
   ContinuousVerifyOptions,
+  EcgBenchmarkRequest,
+  EcgBenchmarkResponse,
 } from './types'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import ParticipantsTab from './components/ParticipantsTab'
@@ -30,6 +39,10 @@ const tabs = [
 type TabId = (typeof tabs)[number]['id']
 
 const progressFromSessions = (count: number) => Math.min(1, count / 12)
+const DEFAULT_BENCHMARK_OPTIONS: EcgBenchmarkRequest = {
+  maxPairsPerUser: 600,
+  testFraction: 0.4,
+}
 
 const buildParticipantsFromSessions = (sessions: EcgSessionRecord[]): Participant[] => {
   const grouped = new Map<
@@ -73,6 +86,7 @@ function App() {
   const [aliasMap, setAliasMap] = useLocalStorage<Record<string, string>>('ui:fitbit-aliases', {})
   const [analyticsUpdatedAt, setAnalyticsUpdatedAt] = useState<string | undefined>()
   const [continuousResult, setContinuousResult] = useState<ContinuousVerifyResponse | null>(null)
+  const [benchmarkResult, setBenchmarkResult] = useState<EcgBenchmarkResponse | null>(null)
   const queryClient = useQueryClient()
 
   const sessionsQuery = useQuery({
@@ -156,6 +170,13 @@ function App() {
     },
   })
 
+  const benchmarkMutation = useMutation<EcgBenchmarkResponse, Error, EcgBenchmarkRequest | undefined>({
+    mutationFn: (options) => benchmarkEcgId(options),
+    onSuccess: (result) => {
+      setBenchmarkResult(result)
+    },
+  })
+
   const handleAliasChange = (participantId: string, alias: string) => {
     setAliasMap((prev) => ({ ...prev, [participantId]: alias }))
   }
@@ -180,6 +201,10 @@ function App() {
 
   const handleContinuousRun = (params: ContinuousVerifyOptions) => {
     continuousMutation.mutate(params)
+  }
+
+  const handleBenchmarkRun = (options?: EcgBenchmarkRequest) => {
+    benchmarkMutation.mutate(options)
   }
 
   const tabLabel = (tabId: TabId) => {
@@ -270,6 +295,12 @@ function App() {
             attempts={attemptLogs}
             participants={participants}
             lastRefreshed={analyticsUpdatedAt}
+            benchmark={benchmarkResult ?? undefined}
+            benchmarkLoading={benchmarkMutation.isPending}
+            benchmarkError={benchmarkMutation.error instanceof Error ? benchmarkMutation.error.message : undefined}
+            onRunBenchmark={handleBenchmarkRun}
+            benchmarkDefaults={DEFAULT_BENCHMARK_OPTIONS}
+            lastTrainingResult={lastTrainingResult}
           />
         )}
 

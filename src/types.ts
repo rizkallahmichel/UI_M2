@@ -85,6 +85,20 @@ export interface ModelTrainingResult {
   pairCount: number;
 }
 
+export interface EcgBenchmarkRequest {
+  maxPairsPerUser?: number;
+  testFraction?: number;
+}
+
+export interface EcgBenchmarkResponse {
+  dataset: string;
+  subjectCount: number;
+  sessionCount: number;
+  trainFraction: number;
+  testFraction: number;
+  metrics: ModelTrainingResult;
+}
+
 export interface ConfidenceSnapshot {
   userId: string;
   sampleCount: number;

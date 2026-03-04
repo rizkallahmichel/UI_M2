@@ -11,6 +11,8 @@ import type {
   ContinuousVerifyResponse,
   ContinuousVerifyOptions,
   ConfidenceSnapshot,
+  EcgBenchmarkRequest,
+  EcgBenchmarkResponse,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5104';
@@ -309,4 +311,15 @@ export const runContinuousVerify = async (
 
   const { data } = await http.post<ContinuousVerifyApiResponse>('/api/ecg-auth/continuous-verify', payload);
   return adaptContinuousResponse(data);
+};
+
+export const benchmarkEcgId = async (
+  options?: EcgBenchmarkRequest,
+): Promise<EcgBenchmarkResponse> => {
+  const payload: Record<string, unknown> = {};
+  if (typeof options?.maxPairsPerUser === 'number') payload.maxPairsPerUser = options.maxPairsPerUser;
+  if (typeof options?.testFraction === 'number') payload.testFraction = options.testFraction;
+
+  const { data } = await http.post<EcgBenchmarkResponse>('/api/ecg-auth/benchmark-ecg-id', payload);
+  return data;
 };
