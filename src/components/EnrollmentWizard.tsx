@@ -10,9 +10,11 @@ type EnrollmentWizardProps = {
   isCapturing: boolean
   latestSession: CollectSessionResponse | null
   errorMessage?: string
+  onUseForVerification?: () => void
+  onOpenTraining?: () => void
 }
 
-const CAPTURE_DURATION_MS = 30_000
+const formatNumber = (value?: number, digits = 2) => (value != null && Number.isFinite(value) ? value.toFixed(digits) : '—')
 
 const EnrollmentWizard = ({
   participant,
@@ -22,18 +24,15 @@ const EnrollmentWizard = ({
   isCapturing,
   latestSession,
   errorMessage,
+  onUseForVerification,
+  onOpenTraining,
 }: EnrollmentWizardProps) => {
-  const [step, setStep] = useState<'instructions' | 'capture' | 'summary'>('instructions')
-  const [progress, setProgress] = useState(0)
-  const [pendingSession, setPendingSession] = useState<CollectSessionResponse | null>(null)
+  const [step, setStep] = useState<'instructions' | 'capturing' | 'summary'>('instructions')
   const [sessionSummary, setSessionSummary] = useState<CollectSessionResponse | null>(null)
   const [captureError, setCaptureError] = useState<string | null>(null)
-  const [captureComplete, setCaptureComplete] = useState(false)
   const [metadataDraft, setMetadataDraft] = useState<SessionMetadata>({})
   const [tagsInput, setTagsInput] = useState('')
   const [notes, setNotes] = useState('')
-
-  const formatNumber = (value?: number, digits = 2) => (value != null && Number.isFinite(value) ? value.toFixed(digits) : '—')
 
   const buildCapturePayload = (): SessionCapturePayload => {
     const trimmedMetadata: SessionMetadata = {
@@ -58,6 +57,7 @@ const EnrollmentWizard = ({
   useEffect(() => {
     if (latestSession && !isCapturing) {
       setSessionSummary(latestSession)
+      setStep('summary')
     }
   }, [latestSession, isCapturing])
 
@@ -67,49 +67,17 @@ const EnrollmentWizard = ({
     setNotes('')
   }, [participant?.id])
 
-  useEffect(() => {
-    if (step !== 'capture') return
-    setProgress(0)
-    setCaptureComplete(false)
-    const start = performance.now()
-    const interval = window.setInterval(() => {
-      const elapsed = performance.now() - start
-      const ratio = Math.min(1, elapsed / CAPTURE_DURATION_MS)
-      setProgress(ratio * 100)
-      if (ratio >= 1) {
-        setCaptureComplete(true)
-        window.clearInterval(interval)
-      }
-    }, 200)
-
-    return () => window.clearInterval(interval)
-  }, [step])
-
-  useEffect(() => {
-    if (captureComplete && pendingSession) {
-      setSessionSummary(pendingSession)
-      setStep('summary')
-      setPendingSession(null)
-      setCaptureComplete(false)
-    }
-  }, [captureComplete, pendingSession])
-
   const startCapture = async () => {
-    if (!participant) {
-      setCaptureError('Select a participant before capturing.')
-      return
-    }
-
     setCaptureError(null)
-    setPendingSession(null)
     setSessionSummary(null)
-    setStep('capture')
+    setStep('capturing')
 
     try {
       const session = await onCapture(buildCapturePayload())
-      setPendingSession(session)
+      setSessionSummary(session)
+      setStep('summary')
     } catch (error) {
-      setCaptureError(error instanceof Error ? error.message : 'Failed to capture ECG session.')
+      setCaptureError(error instanceof Error ? error.message : 'Failed to collect ECG session.')
       setStep('instructions')
     }
   }
@@ -118,55 +86,33 @@ const EnrollmentWizard = ({
     if (!sessionSummary?.features) return []
     const { features } = sessionSummary
     return [
+      { label: 'Fitbit user', value: sessionSummary.fitbitUserId },
       { label: 'Estimated BPM', value: formatNumber(features.estimatedBpm, 1) },
+      { label: 'Signal quality', value: `${features.signalQuality.toUpperCase()} (${formatNumber(features.signalQualityScore, 2)})` },
+      { label: 'HRV (RMSSD)', value: `${formatNumber(features.hrvDailyRmssd, 1)} ms` },
       { label: 'Peak count', value: Number.isFinite(features.peakCount) ? features.peakCount.toString() : '—' },
-      { label: 'Mean ± Std', value: `${formatNumber(features.mean, 3)} ± ${formatNumber(features.std, 3)}` },
       { label: 'RR mean / std', value: `${formatNumber(features.rrMeanMs, 0)} ms / ${formatNumber(features.rrStdMs, 0)} ms` },
       { label: 'QRS width', value: `${formatNumber(features.qrsWidthMs, 1)} ms` },
-      { label: 'HRV (RMSSD)', value: `${formatNumber(features.hrvDailyRmssd, 1)} ms` },
-      {
-        label: 'Signal quality',
-        value: `${features.signalQuality.toUpperCase()} (${formatNumber(features.signalQualityScore, 2)})`,
-      },
       { label: 'Motion artifact', value: formatNumber(features.motionArtifactIndex, 2) },
-      { label: 'Baseline drift', value: formatNumber(features.baselineDriftRatio, 2) },
     ]
-  }, [sessionSummary])
-
-  const surveySummary = useMemo(() => {
-    if (!sessionSummary) {
-      return { metadataEntries: [], tags: '—', notes: '—', hasData: false }
-    }
-    const metadata = sessionSummary.metadata ?? {}
-    const metadataEntries = [
-      { label: 'Activity', value: metadata.activityLabel ?? '—' },
-      { label: 'Stress', value: metadata.stressLevel ?? '—' },
-      { label: 'Sensor placement', value: metadata.sensorPlacement ?? '—' },
-      { label: 'Device model', value: metadata.deviceModel ?? '—' },
-    ]
-    const tagsValue = sessionSummary.tags.length ? sessionSummary.tags.join(', ') : '—'
-    const notesValue = sessionSummary.notes ?? '—'
-    const hasData = metadataEntries.some((entry) => entry.value !== '—') || tagsValue !== '—' || notesValue !== '—'
-    return { metadataEntries, tags: tagsValue, notes: notesValue, hasData }
   }, [sessionSummary])
 
   return (
-    <div className="panel enrollment-panel">
-      <header className="panel-header">
+    <section className="panel workflow-section" aria-labelledby="collection-title">
+      <header className="section-heading">
         <div>
-          <h2>Enrollment wizard</h2>
-          <p>Guide the participant through a high-quality 30 s ECG capture.</p>
+          <p className="eyebrow">Step 2</p>
+          <h2 id="collection-title">Collect a new ECG sample</h2>
+          <p>No timer here. Follow the instructions, start the reading on the watch, then click once to collect.</p>
         </div>
         <div className="participant-select">
-          <label htmlFor="participant-select">Participant</label>
+          <label htmlFor="participant-select">Expected identity</label>
           <select
             id="participant-select"
             value={participant?.id ?? ''}
             onChange={(event) => onSelectParticipant(event.target.value)}
           >
-            <option value="" disabled>
-              Choose participant
-            </option>
+            <option value="">No preset selected</option>
             {participants.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.alias ?? p.id}
@@ -176,22 +122,24 @@ const EnrollmentWizard = ({
         </div>
       </header>
 
-      <div className="wizard-grid">
-        <article className={`wizard-step ${step === 'instructions' ? 'active' : ''}`}>
-          <h3>Step 1 — Instructions</h3>
-          <ul>
-            <li>Seat the participant, ask them to relax their arm, and stay silent.</li>
-            <li>Check the watch fit and confirm the watch is on the Fitbit ECG screen.</li>
-            <li>Start the Fitbit ECG reading and tap “Start capture” below.</li>
-          </ul>
+      <div className="collection-layout">
+        <article className={`workflow-card ${step === 'instructions' ? 'active' : ''}`}>
+          <p className="step-label">Prepare</p>
+          <h3>Operator instructions</h3>
+          <ol className="instruction-list">
+            <li>Ask the person to sit still and keep the wrist relaxed.</li>
+            <li>Open the Fitbit ECG app and wait until the reading screen is ready.</li>
+            <li>When the watch capture starts, click the button below to fetch and save the sample.</li>
+          </ol>
+
           <div className="survey-form">
-            <h4>ECG biometric survey</h4>
+            <h4>Optional context</h4>
             <div className="survey-grid">
               <label>
-                <span>Activity label</span>
+                <span>Activity</span>
                 <input
                   value={metadataDraft.activityLabel ?? ''}
-                  placeholder="e.g. resting, post-run"
+                  placeholder="resting, walking, post-run"
                   onChange={(event) => setMetadataDraft((prev) => ({ ...prev, activityLabel: event.target.value }))}
                 />
               </label>
@@ -199,7 +147,7 @@ const EnrollmentWizard = ({
                 <span>Stress level</span>
                 <input
                   value={metadataDraft.stressLevel ?? ''}
-                  placeholder="e.g. calm, elevated"
+                  placeholder="calm, elevated"
                   onChange={(event) => setMetadataDraft((prev) => ({ ...prev, stressLevel: event.target.value }))}
                 />
               </label>
@@ -207,7 +155,7 @@ const EnrollmentWizard = ({
                 <span>Sensor placement</span>
                 <input
                   value={metadataDraft.sensorPlacement ?? ''}
-                  placeholder="e.g. left wrist"
+                  placeholder="left wrist"
                   onChange={(event) => setMetadataDraft((prev) => ({ ...prev, sensorPlacement: event.target.value }))}
                 />
               </label>
@@ -215,61 +163,52 @@ const EnrollmentWizard = ({
                 <span>Device model</span>
                 <input
                   value={metadataDraft.deviceModel ?? ''}
-                  placeholder="e.g. Charge 6"
+                  placeholder="Charge 6"
                   onChange={(event) => setMetadataDraft((prev) => ({ ...prev, deviceModel: event.target.value }))}
                 />
               </label>
             </div>
             <label>
-              <span>Tags (comma separated)</span>
+              <span>Tags</span>
               <input
                 value={tagsInput}
-                placeholder="e.g. seated, watch loose"
+                placeholder="seated, post-exercise"
                 onChange={(event) => setTagsInput(event.target.value)}
               />
             </label>
             <label>
-              <span>Operator notes</span>
+              <span>Notes</span>
               <textarea
                 value={notes}
-                placeholder="Optional context or quality notes"
+                placeholder="Anything useful about the capture conditions"
                 onChange={(event) => setNotes(event.target.value)}
               />
             </label>
           </div>
+
           <button className="primary" disabled={isCapturing} onClick={startCapture}>
-            {isCapturing ? 'Capturing…' : 'Start capture'}
+            {isCapturing ? 'Collecting sample…' : 'Collect ECG sample'}
           </button>
           {(captureError || errorMessage) && <p className="error-text">{captureError ?? errorMessage}</p>}
         </article>
 
-        <article className={`wizard-step ${step === 'capture' ? 'active' : ''}`}>
-          <h3>Step 2 — Capture (30 s)</h3>
-          <div className="capture-progress">
-            <div className="progress-ring">
-              <svg viewBox="0 0 36 36">
-                <path
-                  className="bg"
-                  d="M18 2.0845
-                     a 15.9155 15.9155 0 0 1 0 31.831
-                     a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
-                <path
-                  className="indicator"
-                  strokeDasharray={`${progress}, 100`}
-                  d="M18 2.0845
-                     a 15.9155 15.9155 0 0 1 0 31.831
-                     a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
-              </svg>
-              <span>{Math.round(progress)}%</span>
-            </div>
-            <p>Keep still… capturing ECG waveform and HRV metrics.</p>
+        <article className={`workflow-card ${step === 'capturing' ? 'active' : ''}`}>
+          <p className="step-label">Collecting</p>
+          <h3>Waiting for backend capture</h3>
+          <p>The UI stays simple here on purpose. Keep the watch stable until the backend returns the ECG session.</p>
+          <div className="capture-checklist">
+            <p>What the system is doing now:</p>
+            <ul>
+              <li>Reading the latest ECG session from the backend</li>
+              <li>Extracting waveform and HRV features</li>
+              <li>Preparing the sample for enrollment and identity testing</li>
+            </ul>
           </div>
         </article>
 
-        <article className={`wizard-step ${step === 'summary' ? 'active' : ''}`}>
-          <h3>Step 3 — Save & review</h3>
+        <article className={`workflow-card ${step === 'summary' ? 'active' : ''}`}>
+          <p className="step-label">Ready</p>
+          <h3>Collected sample summary</h3>
           {sessionSummary ? (
             <>
               <p className="timestamp">
@@ -286,52 +225,28 @@ const EnrollmentWizard = ({
                   </article>
                 ))}
               </div>
-              <div className="survey-summary">
-                <h4>Survey responses</h4>
-                {surveySummary.hasData ? (
-                  <>
-                    <div className="survey-summary-grid">
-                      {surveySummary.metadataEntries.map((entry) => (
-                        <article key={entry.label}>
-                          <p className="card-title">{entry.label}</p>
-                          <p className="card-value">{entry.value}</p>
-                        </article>
-                      ))}
-                    </div>
-                    <div className="survey-notes">
-                      <div>
-                        <p className="card-title">Tags</p>
-                        <p className="card-value">{surveySummary.tags}</p>
-                      </div>
-                      <div>
-                        <p className="card-title">Operator notes</p>
-                        <p className="card-value multi-line">{surveySummary.notes}</p>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <p>No survey responses captured.</p>
-                )}
-              </div>
               {sessionSummary.features.signalQuality === 'poor' && (
-                <p className="warning-text">
-                  Signal quality flagged as POOR. Ask the participant to re-seat the watch and repeat the recording.
-                </p>
+                <p className="warning-text">Signal quality is poor. Re-seat the watch before running an identity test.</p>
               )}
-              <button className="ghost-btn" onClick={startCapture}>
-                Capture again
-              </button>
+              <div className="inline-actions">
+                <button className="primary" onClick={onUseForVerification}>
+                  Identify this ECG
+                </button>
+                <button className="ghost-btn" onClick={startCapture}>
+                  Collect another sample
+                </button>
+                <button className="ghost-btn" onClick={onOpenTraining}>
+                  Train / refresh model
+                </button>
+              </div>
             </>
           ) : (
-            <p>Run a capture to see the summary.</p>
+            <p>Start a collection to view the sample summary.</p>
           )}
         </article>
       </div>
-    </div>
+    </section>
   )
 }
 
 export default EnrollmentWizard
-
-
-

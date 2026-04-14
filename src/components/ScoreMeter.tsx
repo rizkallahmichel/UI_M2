@@ -20,7 +20,7 @@ const ScoreMeter = ({ score, threshold }: ScoreMeterProps) => {
         <span>1.0</span>
       </div>
       <p className={pass ? 'pass-text' : 'fail-text'}>
-        {pass ? 'PASS' : 'FAIL'} — Score {score.toFixed(2)} vs threshold {threshold.toFixed(2)}
+        {pass ? 'PASS' : 'FAIL'} - Score {score.toFixed(2)} vs threshold {threshold.toFixed(2)}
       </p>
     </div>
   )

@@ -1,48 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import './App.css'
-import {
-  fetchSessions,
-  collectSession,
-  trainModel,
-  verifyAttempt,
-  runContinuousVerify,
-  benchmarkEcgId,
-} from './api/client'
+import { collectSession, fetchCurrentFitbitUser, fetchSessions, trainModel, verifyAttempt } from './api/client'
 import type {
   CollectSessionResponse,
+  CurrentFitbitUser,
+  EcgSessionRecord,
   ModelTrainingResult,
   Participant,
-  VerifyAttempt,
-  EcgSessionRecord,
   SessionCapturePayload,
-  ContinuousVerifyResponse,
-  ContinuousVerifyOptions,
-  EcgBenchmarkRequest,
-  EcgBenchmarkResponse,
+  VerifyAttempt,
+  WorkflowLogEntry,
 } from './types'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import ParticipantsTab from './components/ParticipantsTab'
 import EnrollmentWizard from './components/EnrollmentWizard'
 import VerificationPanel from './components/VerificationPanel'
-import AnalyticsTab from './components/AnalyticsTab'
-import ContinuousMonitor from './components/ContinuousMonitor'
-
-const tabs = [
-  { id: 'participants', label: 'Participants' },
-  { id: 'enrollment', label: 'Enrollment' },
-  { id: 'verification', label: 'Verification' },
-  { id: 'continuous', label: 'Continuous' },
-  { id: 'analytics', label: 'Analytics' },
-] as const
-
-type TabId = (typeof tabs)[number]['id']
+import ActivityLogPanel from './components/ActivityLogPanel'
 
 const progressFromSessions = (count: number) => Math.min(1, count / 12)
-const DEFAULT_BENCHMARK_OPTIONS: EcgBenchmarkRequest = {
-  maxPairsPerUser: 600,
-  testFraction: 0.4,
-}
 
 const buildParticipantsFromSessions = (sessions: EcgSessionRecord[]): Participant[] => {
   const grouped = new Map<
@@ -75,23 +51,41 @@ const buildParticipantsFromSessions = (sessions: EcgSessionRecord[]): Participan
   }))
 }
 
+const createLogId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+  return `log-${Math.random().toString(36).slice(2)}-${Date.now()}`
+}
+
+const workspaceTabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'collect', label: 'Collect' },
+  { id: 'verify', label: 'Verify' },
+  { id: 'logs', label: 'Logs' },
+] as const
+
+type WorkspaceView = (typeof workspaceTabs)[number]['id']
+
 function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('participants')
+  const [activeView, setActiveView] = useState<WorkspaceView>('overview')
   const [selectedParticipantId, setSelectedParticipantId] = useState<string>()
+  const [selectionMode, setSelectionMode] = useState<'auto' | 'user'>('auto')
   const [latestSession, setLatestSession] = useState<CollectSessionResponse | null>(null)
   const [latestVerify, setLatestVerify] = useState<VerifyAttempt | null>(null)
   const [attemptLogs, setAttemptLogs] = useState<VerifyAttempt[]>([])
   const [lastTrainingResult, setLastTrainingResult] = useState<ModelTrainingResult | null>(null)
   const [lastTrainedAt, setLastTrainedAt] = useState<string | undefined>()
   const [aliasMap, setAliasMap] = useLocalStorage<Record<string, string>>('ui:fitbit-aliases', {})
-  const [analyticsUpdatedAt, setAnalyticsUpdatedAt] = useState<string | undefined>()
-  const [continuousResult, setContinuousResult] = useState<ContinuousVerifyResponse | null>(null)
-  const [benchmarkResult, setBenchmarkResult] = useState<EcgBenchmarkResponse | null>(null)
+  const [workflowLogs, setWorkflowLogs] = useState<WorkflowLogEntry[]>([])
   const queryClient = useQueryClient()
 
   const sessionsQuery = useQuery({
     queryKey: ['sessions'],
     queryFn: fetchSessions,
+  })
+
+  const currentUserQuery = useQuery({
+    queryKey: ['current-fitbit-user'],
+    queryFn: fetchCurrentFitbitUser,
   })
 
   const participants = useMemo(() => {
@@ -118,62 +112,147 @@ function App() {
       })
   }, [sessionsQuery.data, aliasMap, lastTrainingResult, lastTrainedAt])
 
+  const currentFitbitUser = currentUserQuery.data
+  const connectedParticipantId = currentFitbitUser?.fitbitUserId
+  const connectedParticipant = participants.find((participant) => participant.id === connectedParticipantId)
+
   useEffect(() => {
+    const fitbitUserId = currentFitbitUser?.fitbitUserId
+    const displayName = currentFitbitUser?.displayName?.trim()
+    if (!fitbitUserId || !displayName) return
+
+    setAliasMap((prev) => {
+      if ((prev[fitbitUserId] ?? '').trim().length > 0) return prev
+      return { ...prev, [fitbitUserId]: displayName }
+    })
+  }, [currentFitbitUser?.displayName, currentFitbitUser?.fitbitUserId, setAliasMap])
+
+  useEffect(() => {
+    if (selectionMode === 'user') return
+
+    if (connectedParticipantId && participants.some((participant) => participant.id === connectedParticipantId)) {
+      if (selectedParticipantId !== connectedParticipantId) {
+        setSelectedParticipantId(connectedParticipantId)
+      }
+      return
+    }
+
     if (!selectedParticipantId && participants.length > 0) {
-      setSelectedParticipantId(participants[0].id)
+      const michelParticipant = participants.find(
+        (participant) => participant.alias === 'Michel' || participant.id === 'Michel',
+      )
+      setSelectedParticipantId(michelParticipant?.id ?? participants[0].id)
     }
-  }, [participants, selectedParticipantId])
+  }, [connectedParticipantId, participants, selectedParticipantId, selectionMode])
 
-  useEffect(() => {
-    if (attemptLogs.length > 0) {
-      setAnalyticsUpdatedAt(new Date().toISOString())
-    }
-  }, [attemptLogs])
+  const appendLogEntry = (entry: Omit<WorkflowLogEntry, 'id' | 'timestamp'> & { timestamp?: string }) => {
+    setWorkflowLogs((prev) => [
+      {
+        id: createLogId(),
+        timestamp: entry.timestamp ?? new Date().toISOString(),
+        ...entry,
+      },
+      ...prev,
+    ].slice(0, 40))
+  }
 
-  const selectedParticipant = participants.find((p) => p.id === selectedParticipantId)
+  const openView = (view: WorkspaceView) => setActiveView(view)
+
+  const normalizeParticipantSelection = (id: string) => {
+    setSelectionMode('user')
+    setSelectedParticipantId(id || undefined)
+  }
+
+  const selectedParticipant = participants.find((participant) => participant.id === selectedParticipantId)
 
   const collectMutation = useMutation<CollectSessionResponse, Error, SessionCapturePayload>({
     mutationFn: (payload) => collectSession(payload),
-    onSuccess: (session) => {
+    onSuccess: (session, payload) => {
       setLatestSession(session)
+      setSelectionMode('auto')
+      setSelectedParticipantId(session.fitbitUserId)
+      setActiveView('collect')
       queryClient.setQueryData<EcgSessionRecord[]>(['sessions'], (prev) => {
         const next: EcgSessionRecord = { ...session }
         return prev ? [...prev, next] : [next]
       })
-      setActiveTab('enrollment')
+      appendLogEntry({
+        scope: 'collection',
+        status: 'success',
+        title: 'ECG sample collected',
+        summary: `Session ${session.documentId} saved for ${session.fitbitUserId}.`,
+        requestPayload: payload,
+        responsePayload: session.rawPayload ?? session,
+        timestamp: session.ecgStartTime,
+      })
+    },
+    onError: (error, payload) => {
+      appendLogEntry({
+        scope: 'collection',
+        status: 'error',
+        title: 'Collection failed',
+        summary: error.message,
+        requestPayload: payload,
+        responsePayload: { error: error.message },
+      })
     },
   })
 
-  const trainMutation = useMutation({
+  const trainMutation = useMutation<ModelTrainingResult, Error, number>({
     mutationFn: (maxPairs: number) => trainModel(maxPairs),
-    onSuccess: (result) => {
+    onSuccess: (result, maxPairs) => {
       setLastTrainingResult(result)
       setLastTrainedAt(new Date().toISOString())
+      appendLogEntry({
+        scope: 'training',
+        status: 'success',
+        title: 'Model training completed',
+        summary: `Accuracy ${(result.accuracy * 100).toFixed(1)}%, AUC ${(result.areaUnderRocCurve * 100).toFixed(1)}%.`,
+        requestPayload: { maxPairsPerUser: maxPairs },
+        responsePayload: result.rawPayload ?? result,
+      })
+    },
+    onError: (error, maxPairs) => {
+      appendLogEntry({
+        scope: 'training',
+        status: 'error',
+        title: 'Model training failed',
+        summary: error.message,
+        requestPayload: { maxPairsPerUser: maxPairs },
+        responsePayload: { error: error.message },
+      })
     },
   })
 
-  const verifyMutation = useMutation({
-    mutationFn: (payload: { threshold: number; label?: 'genuine' | 'impostor'; notes?: string; alias?: string }) =>
-      verifyAttempt(payload),
-    onSuccess: (attempt) => {
+  const verifyMutation = useMutation<
+    VerifyAttempt,
+    Error,
+    { threshold: number; label?: 'genuine' | 'impostor'; notes?: string; alias?: string }
+  >({
+    mutationFn: (payload) => verifyAttempt(payload),
+    onSuccess: (attempt, payload) => {
       setLatestVerify(attempt)
       setAttemptLogs((prev) => [attempt, ...prev].slice(0, 400))
-      setActiveTab('verification')
+      setActiveView('verify')
+      appendLogEntry({
+        scope: 'verification',
+        status: 'success',
+        title: 'Identity test completed',
+        summary: `${attempt.passed ? 'Authenticated' : 'Rejected'} with score ${attempt.score.toFixed(3)} at threshold ${attempt.threshold.toFixed(2)}.`,
+        requestPayload: payload,
+        responsePayload: attempt.rawPayload ?? attempt,
+        timestamp: attempt.timestamp,
+      })
     },
-  })
-
-  const continuousMutation = useMutation({
-    mutationFn: (params: ContinuousVerifyOptions) => runContinuousVerify(params),
-    onSuccess: (result) => {
-      setContinuousResult(result)
-      setActiveTab('continuous')
-    },
-  })
-
-  const benchmarkMutation = useMutation<EcgBenchmarkResponse, Error, EcgBenchmarkRequest | undefined>({
-    mutationFn: (options) => benchmarkEcgId(options),
-    onSuccess: (result) => {
-      setBenchmarkResult(result)
+    onError: (error, payload) => {
+      appendLogEntry({
+        scope: 'verification',
+        status: 'error',
+        title: 'Identity test failed',
+        summary: error.message,
+        requestPayload: payload,
+        responsePayload: { error: error.message },
+      })
     },
   })
 
@@ -181,136 +260,234 @@ function App() {
     setAliasMap((prev) => ({ ...prev, [participantId]: alias }))
   }
 
+  const resolveIdentityLabel = (currentUser?: CurrentFitbitUser | null) => {
+    if (connectedParticipant?.alias) return connectedParticipant.alias
+    if (currentUser?.displayName) return currentUser.displayName
+    if (connectedParticipantId) return connectedParticipantId
+    if (selectedParticipant?.alias) return selectedParticipant.alias
+    return selectedParticipant?.id
+  }
+
   const handleVerify = (threshold: number, label?: 'genuine' | 'impostor', notes?: string) => {
     verifyMutation.mutate({
       threshold,
       label,
       notes,
-      alias: selectedParticipant?.alias ?? selectedParticipant?.id,
+      alias: resolveIdentityLabel(currentFitbitUser),
     })
   }
 
-  const handleLabelUpdate = (attemptId: string, label: 'genuine' | 'impostor', notes?: string) => {
-    setAttemptLogs((prev) => prev.map((attempt) => (attempt.id === attemptId ? { ...attempt, label, notes } : attempt)))
-    setLatestVerify((prev) => (prev?.id === attemptId ? { ...prev, label, notes } : prev))
-  }
-
-  const handleTrain = (maxPairs: number) => {
-    trainMutation.mutate(maxPairs)
-  }
-
-  const handleContinuousRun = (params: ContinuousVerifyOptions) => {
-    continuousMutation.mutate(params)
-  }
-
-  const handleBenchmarkRun = (options?: EcgBenchmarkRequest) => {
-    benchmarkMutation.mutate(options)
-  }
-
-  const tabLabel = (tabId: TabId) => {
-    switch (tabId) {
-      case 'participants':
-        return `${tabs.find((t) => t.id === tabId)?.label ?? 'Participants'} (${participants.length})`
-      case 'analytics':
-        return `${tabs.find((t) => t.id === tabId)?.label ?? 'Analytics'} (${attemptLogs.length})`
-      case 'continuous':
-        return `${tabs.find((t) => t.id === tabId)?.label ?? 'Continuous'} (${
-          continuousResult?.samples.length ?? 0
-        })`
-      default:
-        return tabs.find((t) => t.id === tabId)?.label ?? tabId
-    }
-  }
+  const latestDecision = latestVerify ? (latestVerify.passed ? 'Authenticated' : 'Rejected') : 'No test yet'
+  const backendStatus =
+    sessionsQuery.isLoading || currentUserQuery.isLoading
+      ? 'Loading backend...'
+      : sessionsQuery.isError || currentUserQuery.isError
+        ? 'Backend issue'
+        : 'Backend ready'
+  const selectedIdentityLabel = resolveIdentityLabel(currentFitbitUser) ?? 'Unavailable'
+  const latestSessionLabel = latestSession?.documentId ?? 'No sample yet'
+  const helperSteps = [
+    'Overview keeps participants and model controls in one place.',
+    'Collect only opens the ECG capture flow.',
+    'Verify uses the connected Fitbit account as the backend identity baseline.',
+    'Logs centralize backend payloads when you need detail.',
+  ]
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div>
-          <h1>ECG Research Console</h1>
-          <p>Monitor enrollment, train the model, and verify Fitbit ECG attempts in one place.</p>
+    <div className="app-shell workspace-app">
+      <header className="hero compact-hero">
+        <div className="hero-copy compact-copy">
+          <p className="eyebrow">ECG identity workflow</p>
+          <h1>Compact workspace for collection, testing, and backend review</h1>
+          <p className="hero-text">
+            The interface now uses focused views instead of one long page. Switch context without scrolling through the
+            entire project each time.
+          </p>
         </div>
-        <div className="header-actions">
-          <span className="status-pill online">Backend ready</span>
-          <button className="ghost-btn" onClick={() => sessionsQuery.refetch()}>
-            Refresh data
-          </button>
+
+        <div className="hero-panel compact-panel">
+          <div className="status-row">
+            <span className={sessionsQuery.isError ? 'status-pill offline' : 'status-pill online'}>{backendStatus}</span>
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                void sessionsQuery.refetch()
+                void currentUserQuery.refetch()
+              }}
+            >
+              Refresh data
+            </button>
+          </div>
+
+          <div className="hero-stats compact-stats">
+            <article className="hero-stat">
+              <p className="card-title">Connected Fitbit identity</p>
+              <p className="card-value compact-value">{selectedIdentityLabel}</p>
+            </article>
+            <article className="hero-stat">
+              <p className="card-title">Last ECG sample</p>
+              <p className="card-value compact-value">{latestSessionLabel}</p>
+            </article>
+            <article className="hero-stat">
+              <p className="card-title">Last decision</p>
+              <p className="card-value compact-value">{latestDecision}</p>
+            </article>
+            <article className="hero-stat">
+              <p className="card-title">Operation logs</p>
+              <p className="card-value compact-value">{workflowLogs.length}</p>
+            </article>
+          </div>
         </div>
       </header>
 
-      <nav className="tab-nav">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={tab.id === activeTab ? 'tab-btn active' : 'tab-btn'}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tabLabel(tab.id)}
-          </button>
-        ))}
-      </nav>
+      <section className="workspace-shell">
+        <aside className="workspace-sidebar">
+          <section className="panel sidebar-panel">
+            <div className="section-heading compact">
+              <div>
+                <p className="eyebrow">Workspace</p>
+                <h2>Views</h2>
+              </div>
+            </div>
 
-      <section className="tab-panel">
-        {activeTab === 'participants' && (
-          <ParticipantsTab
-            participants={participants}
-            loading={sessionsQuery.isLoading}
-            selectedParticipantId={selectedParticipantId}
-            onSelectParticipant={setSelectedParticipantId}
-            onAliasChange={handleAliasChange}
-            onGoToEnrollment={() => setActiveTab('enrollment')}
-            onGoToVerification={() => setActiveTab('verification')}
-            onTrainModel={handleTrain}
-            training={trainMutation.isPending}
-            lastTrainingResult={lastTrainingResult}
-          />
-        )}
+            <nav className="workspace-nav" aria-label="Workspace views">
+              {workspaceTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  className={tab.id === activeView ? 'workspace-tab active' : 'workspace-tab'}
+                  onClick={() => openView(tab.id)}
+                >
+                  <span>{tab.label}</span>
+                  {tab.id === 'overview' && <strong>{participants.length}</strong>}
+                  {tab.id === 'collect' && <strong>{latestSession ? '1' : '0'}</strong>}
+                  {tab.id === 'verify' && <strong>{attemptLogs.length}</strong>}
+                  {tab.id === 'logs' && <strong>{workflowLogs.length}</strong>}
+                </button>
+              ))}
+            </nav>
+          </section>
 
-        {activeTab === 'enrollment' && (
-          <EnrollmentWizard
-            participant={selectedParticipant}
-            onSelectParticipant={setSelectedParticipantId}
-            participants={participants}
-            onCapture={(payload) => collectMutation.mutateAsync(payload)}
-            isCapturing={collectMutation.isPending}
-            latestSession={latestSession}
-            errorMessage={collectMutation.error instanceof Error ? collectMutation.error.message : undefined}
-          />
-        )}
+          <section className="panel sidebar-panel">
+            <div className="section-heading compact">
+              <div>
+                <p className="eyebrow">Quick status</p>
+                <h2>At a glance</h2>
+              </div>
+            </div>
+            <div className="sidebar-summary">
+              <article className="summary-tile">
+                <p className="card-title">Participants</p>
+                <p className="card-value">{participants.length}</p>
+              </article>
+              <article className="summary-tile">
+                <p className="card-title">Sessions</p>
+                <p className="card-value">{sessionsQuery.data?.length ?? 0}</p>
+              </article>
+              <article className="summary-tile">
+                <p className="card-title">Checks</p>
+                <p className="card-value">{attemptLogs.length}</p>
+              </article>
+              <article className="summary-tile">
+                <p className="card-title">Model</p>
+                <p className="card-value">{lastTrainingResult ? 'Ready' : 'Untrained'}</p>
+              </article>
+            </div>
+          </section>
 
-        {activeTab === 'verification' && (
-          <VerificationPanel
-            participants={participants}
-            selectedParticipantId={selectedParticipantId}
-            onSelectParticipant={setSelectedParticipantId}
-            onVerify={handleVerify}
-            isVerifying={verifyMutation.isPending}
-            latestResult={latestVerify}
-            onLabelUpdate={handleLabelUpdate}
-            attempts={attemptLogs.slice(0, 12)}
-          />
-        )}
+          <section className="panel sidebar-panel">
+            <div className="section-heading compact">
+              <div>
+                <p className="eyebrow">How it works</p>
+                <h2>Flow</h2>
+              </div>
+            </div>
+            <ol className="helper-list">
+              {helperSteps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          </section>
+        </aside>
 
-        {activeTab === 'analytics' && (
-          <AnalyticsTab
-            attempts={attemptLogs}
-            participants={participants}
-            lastRefreshed={analyticsUpdatedAt}
-            benchmark={benchmarkResult ?? undefined}
-            benchmarkLoading={benchmarkMutation.isPending}
-            benchmarkError={benchmarkMutation.error instanceof Error ? benchmarkMutation.error.message : undefined}
-            onRunBenchmark={handleBenchmarkRun}
-            benchmarkDefaults={DEFAULT_BENCHMARK_OPTIONS}
-            lastTrainingResult={lastTrainingResult}
-          />
-        )}
+        <main className="workspace-main">
+          <div className="workspace-stage">
+            <div className="workspace-stage-copy">
+              <p className="eyebrow">Current view</p>
+              <h2>{workspaceTabs.find((tab) => tab.id === activeView)?.label}</h2>
+              <p>
+                {activeView === 'overview' && 'Manage participants, aliases, and model training without leaving this view.'}
+                {activeView === 'collect' && 'Collect a new ECG sample and review its signal summary in one focused screen.'}
+                {activeView === 'verify' && 'Run the identity test against the connected Fitbit account and inspect the backend verdict.'}
+                {activeView === 'logs' && 'Inspect backend payloads and the exact operation history without cluttering the main flow.'}
+              </p>
+            </div>
+            <div className="workspace-stage-actions">
+              {activeView !== 'collect' && (
+                <button className="ghost-btn" onClick={() => openView('collect')}>
+                  Collect ECG
+                </button>
+              )}
+              {activeView !== 'verify' && (
+                <button className="ghost-btn" onClick={() => openView('verify')}>
+                  Identity test
+                </button>
+              )}
+              {activeView !== 'logs' && (
+                <button className="ghost-btn" onClick={() => openView('logs')}>
+                  Backend logs
+                </button>
+              )}
+            </div>
+          </div>
 
-        {activeTab === 'continuous' && (
-          <ContinuousMonitor
-            latestResult={continuousResult}
-            isRunning={continuousMutation.isPending}
-            onRun={handleContinuousRun}
-          />
-        )}
+          <section className="workspace-content">
+            {activeView === 'overview' && (
+              <ParticipantsTab
+                participants={participants}
+                loading={sessionsQuery.isLoading}
+                selectedParticipantId={selectedParticipantId}
+                onSelectParticipant={normalizeParticipantSelection}
+                onAliasChange={handleAliasChange}
+                onGoToEnrollment={() => openView('collect')}
+                onGoToVerification={() => openView('verify')}
+                onTrainModel={(maxPairs) => trainMutation.mutate(maxPairs)}
+                training={trainMutation.isPending}
+                lastTrainingResult={lastTrainingResult}
+              />
+            )}
+
+            {activeView === 'collect' && (
+              <EnrollmentWizard
+                participant={selectedParticipant}
+                onSelectParticipant={normalizeParticipantSelection}
+                participants={participants}
+                onCapture={(payload) => collectMutation.mutateAsync(payload)}
+                isCapturing={collectMutation.isPending}
+                latestSession={latestSession}
+                errorMessage={collectMutation.error instanceof Error ? collectMutation.error.message : undefined}
+                onUseForVerification={() => openView('verify')}
+                onOpenTraining={() => openView('overview')}
+              />
+            )}
+
+            {activeView === 'verify' && (
+              <VerificationPanel
+                participants={participants}
+                connectedUser={currentFitbitUser}
+                selectedParticipantId={selectedParticipantId}
+                onSelectParticipant={normalizeParticipantSelection}
+                onVerify={handleVerify}
+                isVerifying={verifyMutation.isPending}
+                latestResult={latestVerify}
+                errorMessage={verifyMutation.error instanceof Error ? verifyMutation.error.message : undefined}
+                attempts={attemptLogs}
+                onGoToCollection={() => openView('collect')}
+              />
+            )}
+
+            {activeView === 'logs' && <ActivityLogPanel entries={workflowLogs} />}
+          </section>
+        </main>
       </section>
     </div>
   )

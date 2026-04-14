@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type {
   CollectSessionResponse,
+  CurrentFitbitUser,
   ModelTrainingResult,
   VerifyAttempt,
   VerifyComparison,
@@ -24,6 +25,37 @@ const http = axios.create({
   },
 });
 
+const extractErrorMessage = (error: unknown) => {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error ? error.message : 'Unexpected API error.';
+  }
+
+  const payload = error.response?.data;
+
+  if (typeof payload === 'string' && payload.trim().length > 0) {
+    return payload.trim();
+  }
+
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const candidates = [record.message, record.error, record.title, record.detail];
+    const firstString = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+    if (typeof firstString === 'string') {
+      return firstString.trim();
+    }
+  }
+
+  return error.message || 'Unexpected API error.';
+};
+
+const withApiError = async <T>(request: Promise<T>): Promise<T> => {
+  try {
+    return await request;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
+};
+
 const randomId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
@@ -33,6 +65,19 @@ const coerceNumber = (value: unknown) => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') return Number(value);
   return 0;
+};
+
+const coerceBoolean = (value: unknown) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+    if (normalized === '1') return true;
+    if (normalized === '0') return false;
+  }
+  return Boolean(value);
 };
 
 const evaluateSignalQuality = (features: Partial<EcgFeatureSet>) => {
@@ -129,9 +174,14 @@ interface ConfidenceApiResponse {
   updatedAtUtc?: string;
 }
 
+interface CurrentFitbitUserApiResponse {
+  fitbitUserId: string;
+  displayName?: string | null;
+}
+
 interface VerifyApiResponse {
   fitbitUserId: string;
-  authenticated: boolean;
+  authenticated?: boolean | string | number | null;
   score: number;
   threshold: number;
   ecgStartTime?: string;
@@ -143,7 +193,7 @@ interface VerifyApiResponse {
 }
 
 interface ContinuousVerifyApiResponse {
-  authenticated: boolean;
+  authenticated?: boolean | string | number | null;
   rollingMeanScore: number;
   rollingWorstScore: number;
   samples: Array<{
@@ -228,6 +278,7 @@ const adaptCollectResponse = (data: CollectSessionApiResponse): CollectSessionRe
     scalingFactor: coerceNumber(data.scalingFactor),
     tags: adaptTags(data.tags),
     notes: sanitizeString(data.notes),
+    rawPayload: data as unknown as Record<string, unknown>,
   };
 };
 
@@ -239,12 +290,13 @@ const adaptVerifyResponse = (response: VerifyApiResponse): VerifyAttempt => {
     timestamp,
     score: response.score,
     threshold: response.threshold,
-    passed: response.authenticated,
+    passed: coerceBoolean(response.authenticated),
     hrv: response.hrvDailyRmssd,
     comparisons: adaptVerifyComparisons(response.comparisonScores ?? []),
     consensusScore: typeof response.consensusScore === 'number' ? response.consensusScore : undefined,
     passingVotes: typeof response.passingVotes === 'number' ? response.passingVotes : undefined,
     confidence: adaptConfidenceSnapshot(response.confidence),
+    rawPayload: response as unknown as Record<string, unknown>,
   };
 };
 
@@ -261,26 +313,37 @@ const adaptContinuousSamples = (samples: ContinuousVerifyApiResponse['samples'])
     .sort((a, b) => new Date(a.windowStartUtc).getTime() - new Date(b.windowStartUtc).getTime());
 
 const adaptContinuousResponse = (response: ContinuousVerifyApiResponse): ContinuousVerifyResponse => ({
-  authenticated: Boolean(response.authenticated),
+  authenticated: coerceBoolean(response.authenticated),
   rollingMeanScore: coerceNumber(response.rollingMeanScore),
   rollingWorstScore: coerceNumber(response.rollingWorstScore),
   samples: adaptContinuousSamples(response.samples ?? []),
 });
 
 export const fetchSessions = async (): Promise<EcgSessionRecord[]> => {
-  const { data } = await http.get<CollectSessionApiResponse[]>('/api/ecg-auth/sessions');
+  const { data } = await withApiError(http.get<CollectSessionApiResponse[]>('/api/ecg-auth/sessions'));
   return data.map((record) => adaptSessionRecord(record));
+};
+
+export const fetchCurrentFitbitUser = async (): Promise<CurrentFitbitUser> => {
+  const { data } = await withApiError(http.get<CurrentFitbitUserApiResponse>('/api/ecg-auth/current-user'));
+  return {
+    fitbitUserId: data.fitbitUserId,
+    displayName: sanitizeString(data.displayName),
+  };
 };
 
 export const collectSession = async (payload?: SessionCapturePayload): Promise<CollectSessionResponse> => {
   const body = payload ?? {};
-  const { data } = await http.post<CollectSessionApiResponse>('/api/ecg-auth/collect-session', body);
+  const { data } = await withApiError(http.post<CollectSessionApiResponse>('/api/ecg-auth/collect-session', body));
   return adaptCollectResponse(data);
 };
 
 export const trainModel = async (maxPairsPerUser: number): Promise<ModelTrainingResult> => {
-  const { data } = await http.post<ModelTrainingResult>(`/api/ecg-auth/train?maxPairsPerUser=${maxPairsPerUser}`);
-  return data;
+  const { data } = await withApiError(http.post<ModelTrainingResult>(`/api/ecg-auth/train?maxPairsPerUser=${maxPairsPerUser}`));
+  return {
+    ...data,
+    rawPayload: data as unknown as Record<string, unknown>,
+  };
 };
 
 interface VerifyOptions {
@@ -291,7 +354,7 @@ interface VerifyOptions {
 }
 
 export const verifyAttempt = async (options: VerifyOptions): Promise<VerifyAttempt> => {
-  const { data } = await http.post<VerifyApiResponse>(`/api/ecg-auth/verify?threshold=${options.threshold}`);
+  const { data } = await withApiError(http.post<VerifyApiResponse>(`/api/ecg-auth/verify?threshold=${options.threshold}`));
   const attempt = adaptVerifyResponse(data);
   return {
     ...attempt,
@@ -309,7 +372,7 @@ export const runContinuousVerify = async (
   if (typeof options.windowMinutes === 'number') payload.windowMinutes = options.windowMinutes;
   if (typeof options.strideMinutes === 'number') payload.strideMinutes = options.strideMinutes;
 
-  const { data } = await http.post<ContinuousVerifyApiResponse>('/api/ecg-auth/continuous-verify', payload);
+  const { data } = await withApiError(http.post<ContinuousVerifyApiResponse>('/api/ecg-auth/continuous-verify', payload));
   return adaptContinuousResponse(data);
 };
 
@@ -320,6 +383,6 @@ export const benchmarkEcgId = async (
   if (typeof options?.maxPairsPerUser === 'number') payload.maxPairsPerUser = options.maxPairsPerUser;
   if (typeof options?.testFraction === 'number') payload.testFraction = options.testFraction;
 
-  const { data } = await http.post<EcgBenchmarkResponse>('/api/ecg-auth/benchmark-ecg-id', payload);
+  const { data } = await withApiError(http.post<EcgBenchmarkResponse>('/api/ecg-auth/benchmark-ecg-id', payload));
   return data;
 };

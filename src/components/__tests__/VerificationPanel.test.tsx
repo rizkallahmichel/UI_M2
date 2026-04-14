@@ -35,7 +35,6 @@ describe('VerificationPanel', () => {
 
   const renderPanel = (overrides?: Partial<ComponentProps<typeof VerificationPanel>>) => {
     const onVerify = vi.fn()
-    const onLabelUpdate = vi.fn()
 
     const props: ComponentProps<typeof VerificationPanel> = {
       participants,
@@ -44,34 +43,30 @@ describe('VerificationPanel', () => {
       onVerify,
       isVerifying: false,
       latestResult: baseAttempt,
-      onLabelUpdate,
       attempts: [baseAttempt],
       ...overrides,
     }
 
     render(<VerificationPanel {...props} />)
 
-    return { onVerify, onLabelUpdate }
+    return { onVerify }
   }
 
-  it('invokes onVerify with current threshold, label, and notes', () => {
+  it('invokes onVerify with current threshold and notes', () => {
     const { onVerify } = renderPanel()
 
     const thresholdSlider = screen.getByRole('slider', { name: /Threshold:/i })
     fireEvent.change(thresholdSlider, { target: { value: 0.75 } })
-    fireEvent.click(screen.getByLabelText('Impostor mode'))
     fireEvent.change(screen.getByLabelText('Attempt notes'), { target: { value: 'motion test' } })
-    fireEvent.click(screen.getByRole('button', { name: /Verify now/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Run identity test/i }))
 
-    expect(onVerify).toHaveBeenCalledWith(0.75, 'impostor', 'motion test')
+    expect(onVerify).toHaveBeenCalledWith(0.75, undefined, 'motion test')
   })
 
-  it('surfaces comparison results and allows relabeling attempts', () => {
-    const { onLabelUpdate } = renderPanel()
+  it('surfaces comparison results from the latest attempt', () => {
+    renderPanel()
 
     expect(screen.getByText('Baseline 1')).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: 'Genuine' }))
-    expect(onLabelUpdate).toHaveBeenCalledWith(baseAttempt.id, 'genuine', undefined)
   })
 
   it('renders consensus, passing votes, and confidence details when available', () => {
@@ -102,5 +97,20 @@ describe('VerificationPanel', () => {
     expect(confidenceCard).not.toBeNull()
     expect(within(confidenceCard as HTMLElement).getByText('80%')).toBeVisible()
     expect(screen.getByText(/Drift 10.0%/i)).toBeVisible()
+  })
+
+  it('shows a clear recollect message when the backend reports insufficient signal quality', () => {
+    const onGoToCollection = vi.fn()
+
+    renderPanel({
+      errorMessage: '400 ECG signal quality is insufficient for reliable authentication.',
+      onGoToCollection,
+    })
+
+    expect(screen.getByText(/Unable to decide if this ECG belongs to the connected Fitbit user/i)).toBeVisible()
+    expect(screen.getByText(/The system cannot say yet whether this is the right user or an impostor/i)).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: /Collect a new ECG/i }))
+    expect(onGoToCollection).toHaveBeenCalled()
   })
 })

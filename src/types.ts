@@ -17,6 +17,11 @@ export interface Participant {
   modelStatus?: ParticipantModelStatus;
 }
 
+export interface CurrentFitbitUser {
+  fitbitUserId: string;
+  displayName?: string;
+}
+
 export interface SessionMetadata {
   activityLabel?: string;
   stressLevel?: string;
@@ -71,6 +76,7 @@ export interface CollectSessionResponse {
   scalingFactor: number;
   tags: string[];
   notes?: string;
+  rawPayload?: Record<string, unknown>;
 }
 
 export type EcgSessionRecord = CollectSessionResponse;
@@ -83,6 +89,7 @@ export interface ModelTrainingResult {
   f1Score: number;
   sessionCount: number;
   pairCount: number;
+  rawPayload?: Record<string, unknown>;
 }
 
 export interface EcgBenchmarkRequest {
@@ -134,6 +141,7 @@ export interface VerifyAttempt {
   consensusScore?: number;
   passingVotes?: number;
   confidence?: ConfidenceSnapshot;
+  rawPayload?: Record<string, unknown>;
 }
 
 export interface AnalyticsSnapshot {
@@ -162,4 +170,15 @@ export interface ContinuousVerifyOptions {
   threshold: number;
   windowMinutes: number;
   strideMinutes: number;
+}
+
+export interface WorkflowLogEntry {
+  id: string;
+  scope: 'collection' | 'verification' | 'training' | 'system';
+  status: 'success' | 'error' | 'info';
+  title: string;
+  summary: string;
+  timestamp: string;
+  requestPayload?: unknown;
+  responsePayload?: unknown;
 }

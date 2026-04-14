@@ -16,7 +16,7 @@ type ParticipantsTabProps = {
   lastTrainingResult: ModelTrainingResult | null
 }
 
-const percent = (value?: number) => (value != null ? `${(value * 100).toFixed(1)}%` : '—')
+const percent = (value?: number) => (value != null ? `${(value * 100).toFixed(1)}%` : '-')
 
 const ParticipantsTab = ({
   participants,
@@ -41,27 +41,54 @@ const ParticipantsTab = ({
     setAliasDrafts(next)
   }, [participants])
 
-  const readyForTraining = participants.filter((p) => (p.sessionCount ?? 0) >= 10).length
+  const readyForTraining = participants.filter((participant) => (participant.sessionCount ?? 0) >= 10).length
 
   const summaryCards = useMemo(
     () => [
       {
         title: 'Participants',
-        value: loading ? '…' : participants.length.toString(),
-        hint: 'Total Fitbit IDs seen in Firestore',
+        value: loading ? '...' : participants.length.toString(),
+        hint: 'Fitbit IDs available for ECG identity work',
       },
       {
         title: 'Training-ready',
-        value: loading ? '…' : readyForTraining.toString(),
-        hint: 'Users with ≥10 ECG sessions',
+        value: loading ? '...' : readyForTraining.toString(),
+        hint: 'Users with enough ECG sessions to contribute to training',
       },
       {
-        title: 'Last trained',
-        value: lastTrainingResult?.modelPath ? 'Model saved' : 'Not yet',
-        hint: lastTrainingResult?.modelPath?.replace(/^.*[\\/]/, '') ?? 'Trigger training to view metrics',
+        title: 'Latest model',
+        value: lastTrainingResult?.modelPath ? 'Available' : 'Missing',
+        hint: lastTrainingResult?.modelPath?.replace(/^.*[\\/]/, '') ?? 'Run training to create a fresh model',
       },
     ],
     [participants.length, readyForTraining, loading, lastTrainingResult],
+  )
+
+  const trainingMetrics = useMemo(
+    () =>
+      lastTrainingResult
+        ? [
+            {
+              label: 'Accuracy',
+              value: lastTrainingResult.accuracy,
+              tone: 'gold',
+              note: 'Overall correct authentication decisions',
+            },
+            {
+              label: 'AUC',
+              value: lastTrainingResult.areaUnderRocCurve,
+              tone: 'green',
+              note: 'Separation quality between positive and negative pairs',
+            },
+            {
+              label: 'F1',
+              value: lastTrainingResult.f1Score,
+              tone: 'cyan',
+              note: 'Balance between precision and recall',
+            },
+          ]
+        : [],
+    [lastTrainingResult],
   )
 
   const handleAliasCommit = (participantId: string) => {
@@ -71,22 +98,38 @@ const ParticipantsTab = ({
 
   return (
     <div className="panel participants-panel">
-      <section className="cards-grid">
+      <header className="section-heading">
+        <div>
+          <p className="eyebrow">Step 1</p>
+          <h2>Participants and model</h2>
+          <p>Choose the expected identity, rename Fitbit IDs, and prepare the model before testing verification.</p>
+        </div>
+      </header>
+
+      <section className="participant-stats-grid participant-stats-grid-compact">
         {summaryCards.map((card) => (
-          <article key={card.title} className="card">
+          <article key={card.title} className="card summary-card compact-card">
             <p className="card-title">{card.title}</p>
             <p className="card-value">{card.value}</p>
             <p className="card-hint">{card.hint}</p>
           </article>
         ))}
-        <article className="card train-card">
-          <header>
+      </section>
+
+      <section className="model-workbench-grid">
+        <article className="card train-workbench-card">
+          <div className="train-workbench-copy">
             <p className="card-title">Train model</p>
-            <p className="card-hint">Sweep HRV/ECG pairs to refresh the biometric model.</p>
-          </header>
-          <div className="train-form">
-            <label>
-              Max pairs per user
+            <h3>Refresh the ECG model</h3>
+            <p className="card-hint">
+              Training rebuilds the identity model from stored ECG sessions. Run it after collecting new data so
+              verification uses fresh pairs and metrics.
+            </p>
+          </div>
+
+          <div className="train-input-row">
+            <label className="train-input train-input-light">
+              <span>Max pairs per user</span>
               <input
                 type="number"
                 min={100}
@@ -96,16 +139,78 @@ const ParticipantsTab = ({
                 onChange={(event) => setMaxPairs(Number(event.target.value))}
               />
             </label>
-            <button className="primary" disabled={training} onClick={() => onTrainModel(maxPairs)}>
-              {training ? 'Training…' : 'Train now'}
+            <button className="primary train-submit" disabled={training} onClick={() => onTrainModel(maxPairs)}>
+              {training ? 'Training...' : 'Train now'}
             </button>
           </div>
-          {lastTrainingResult && (
-            <ul className="train-metrics">
-              <li>Accuracy: {percent(lastTrainingResult.accuracy)}</li>
-              <li>AUC: {percent(lastTrainingResult.areaUnderRocCurve)}</li>
-              <li>F1: {percent(lastTrainingResult.f1Score)}</li>
-            </ul>
+
+          <p className="form-helper train-helper-text">
+            This limit caps how many training pairs are sampled for each user. Higher values usually improve coverage
+            but make training slower.
+          </p>
+
+          <div className="train-meta-grid">
+            <div className="train-meta-card">
+              <span>Current limit</span>
+              <strong>{maxPairs} pairs</strong>
+            </div>
+            <div className="train-meta-card">
+              <span>Latest run</span>
+              <strong>{lastTrainingResult ? `${lastTrainingResult.pairCount} pairs` : 'No run yet'}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article className="card model-results-card model-results-workbench">
+          <div className="results-card-header">
+            <div className="results-card-copy">
+              <p className="card-title">Model results</p>
+              <h3>Training quality</h3>
+              <p>Latest output from the backend training run.</p>
+            </div>
+            {lastTrainingResult ? (
+              <div className="model-results-pills">
+                <span className="result-pill">{lastTrainingResult.pairCount} pairs</span>
+                <span className="result-pill">{lastTrainingResult.sessionCount} sessions</span>
+              </div>
+            ) : null}
+          </div>
+
+          {lastTrainingResult ? (
+            <>
+              <div className="model-output-strip">
+                <div className="model-output-card">
+                  <span>Model file</span>
+                  <strong>{lastTrainingResult.modelPath.replace(/^.*[\\/]/, '')}</strong>
+                </div>
+                <div className="model-output-card">
+                  <span>Recommended reading</span>
+                  <strong>Retrain after collecting new ECG sessions</strong>
+                </div>
+              </div>
+
+              <div className="metric-stack compact-light">
+                {trainingMetrics.map((metric) => (
+                  <article key={metric.label} className="metric-row light">
+                    <div className="metric-row-header dark">
+                      <span>{metric.label}</span>
+                      <strong>{percent(metric.value)}</strong>
+                    </div>
+                    <div className="metric-bar-track light">
+                      <div
+                        className={clsx('metric-bar-fill', `tone-${metric.tone}`)}
+                        style={{ width: `${Math.max(0, Math.min(100, metric.value * 100))}%` }}
+                      />
+                    </div>
+                    <p className="metric-note">{metric.note}</p>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="train-empty polished light">
+              <p>No training result yet. Run the model once and the performance graph will appear here.</p>
+            </div>
           )}
         </article>
       </section>
@@ -113,15 +218,15 @@ const ParticipantsTab = ({
       <section className="table-section">
         <header>
           <div>
-            <h2>Participants</h2>
-            <p>Alias each Fitbit ID and track enrollment / model coverage.</p>
+            <h3>Known Fitbit users</h3>
+            <p>Click a row to define the expected identity for collection and identity testing.</p>
           </div>
           <div className="table-actions">
             <button className="ghost-btn" onClick={onGoToEnrollment}>
-              Collect session
+              Go to collection
             </button>
             <button className="ghost-btn" onClick={onGoToVerification}>
-              Go to verification
+              Go to identity test
             </button>
           </div>
         </header>
@@ -168,7 +273,7 @@ const ParticipantsTab = ({
                   <td>
                     {participant.modelStatus ? (
                       <span>
-                        {participant.modelStatus.trainedPairs} pairs ·{' '}
+                        {participant.modelStatus.trainedPairs} pairs |{' '}
                         {participant.modelStatus.lastTrainedAt
                           ? formatDistanceToNowStrict(new Date(participant.modelStatus.lastTrainedAt), { addSuffix: true })
                           : 'Not trained'}
@@ -180,15 +285,16 @@ const ParticipantsTab = ({
                   <td>
                     {participant.lastSessionAt
                       ? formatDistanceToNowStrict(new Date(participant.lastSessionAt), { addSuffix: true })
-                      : '—'}
+                      : '-'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+
           {participants.length === 0 && (
             <div className="empty-state">
-              <p>No participants yet. Run Collect Session after syncing a Fitbit ECG reading.</p>
+              <p>No participant detected yet. Run one ECG collection and the Fitbit user ID will appear here.</p>
             </div>
           )}
         </div>
