@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import type { CollectSessionResponse, Participant, SessionCapturePayload, SessionMetadata } from '../types'
+import ViewStateBanner from './ViewStateBanner'
 
 type EnrollmentWizardProps = {
   participant?: Participant
@@ -14,7 +15,7 @@ type EnrollmentWizardProps = {
   onOpenTraining?: () => void
 }
 
-const formatNumber = (value?: number, digits = 2) => (value != null && Number.isFinite(value) ? value.toFixed(digits) : '—')
+const formatNumber = (value?: number, digits = 2) => (value != null && Number.isFinite(value) ? value.toFixed(digits) : '--')
 
 const EnrollmentWizard = ({
   participant,
@@ -90,7 +91,7 @@ const EnrollmentWizard = ({
       { label: 'Estimated BPM', value: formatNumber(features.estimatedBpm, 1) },
       { label: 'Signal quality', value: `${features.signalQuality.toUpperCase()} (${formatNumber(features.signalQualityScore, 2)})` },
       { label: 'HRV (RMSSD)', value: `${formatNumber(features.hrvDailyRmssd, 1)} ms` },
-      { label: 'Peak count', value: Number.isFinite(features.peakCount) ? features.peakCount.toString() : '—' },
+      { label: 'Peak count', value: Number.isFinite(features.peakCount) ? features.peakCount.toString() : '--' },
       { label: 'RR mean / std', value: `${formatNumber(features.rrMeanMs, 0)} ms / ${formatNumber(features.rrStdMs, 0)} ms` },
       { label: 'QRS width', value: `${formatNumber(features.qrsWidthMs, 1)} ms` },
       { label: 'Motion artifact', value: formatNumber(features.motionArtifactIndex, 2) },
@@ -186,10 +187,23 @@ const EnrollmentWizard = ({
             </label>
           </div>
 
-          <button className="primary" disabled={isCapturing} onClick={startCapture}>
-            {isCapturing ? 'Collecting sample…' : 'Collect ECG sample'}
+          <button type="button" className="primary" disabled={isCapturing} onClick={startCapture}>
+            {isCapturing ? 'Collecting sample...' : 'Collect ECG sample'}
           </button>
-          {(captureError || errorMessage) && <p className="error-text">{captureError ?? errorMessage}</p>}
+          {isCapturing && (
+            <ViewStateBanner
+              tone="loading"
+              title="Collecting ECG sample"
+              message="Waiting for backend capture and feature extraction."
+            />
+          )}
+          {(captureError || errorMessage) && (
+            <ViewStateBanner
+              tone="error"
+              title="Collection failed"
+              message={captureError ?? errorMessage ?? 'Unable to collect ECG sample.'}
+            />
+          )}
         </article>
 
         <article className={`workflow-card ${step === 'capturing' ? 'active' : ''}`}>
@@ -229,13 +243,13 @@ const EnrollmentWizard = ({
                 <p className="warning-text">Signal quality is poor. Re-seat the watch before running an identity test.</p>
               )}
               <div className="inline-actions">
-                <button className="primary" onClick={onUseForVerification}>
+                <button type="button" className="primary" onClick={onUseForVerification}>
                   Identify this ECG
                 </button>
-                <button className="ghost-btn" onClick={startCapture}>
+                <button type="button" className="ghost-btn" onClick={startCapture}>
                   Collect another sample
                 </button>
-                <button className="ghost-btn" onClick={onOpenTraining}>
+                <button type="button" className="ghost-btn" onClick={onOpenTraining}>
                   Train / refresh model
                 </button>
               </div>
@@ -250,3 +264,4 @@ const EnrollmentWizard = ({
 }
 
 export default EnrollmentWizard
+

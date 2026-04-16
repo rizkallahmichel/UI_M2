@@ -1,21 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { formatDistanceToNowStrict } from 'date-fns'
 import clsx from 'clsx'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ReferenceLine,
-  ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import type { CurrentFitbitUser, Participant, VerifyAttempt } from '../types'
 import ScoreMeter from './ScoreMeter'
+import ViewStateBanner from './ViewStateBanner'
+const VerificationCharts = lazy(() => import('./VerificationCharts'))
 
 type VerificationPanelProps = {
   participants: Participant[]
@@ -116,48 +105,6 @@ const VerificationPanel = ({
     [latestResult],
   )
 
-  const chartPoints = useMemo(
-    () =>
-      attempts
-        .slice()
-        .reverse()
-        .map((attempt, index) => ({
-          index,
-          score: Number(attempt.score.toFixed(3)),
-          threshold: Number(attempt.threshold.toFixed(3)),
-          expected: attempt.alias ?? attempt.participantId,
-          label: attempt.label ?? 'unlabeled',
-          result: attempt.passed ? 'pass' : 'fail',
-        })),
-    [attempts],
-  )
-
-  const scatterSeries = useMemo(
-    () => ({
-      pass: chartPoints.filter((point) => point.result === 'pass'),
-      fail: chartPoints.filter((point) => point.result === 'fail'),
-    }),
-    [chartPoints],
-  )
-
-  const distributionData = useMemo(
-    () => [
-      {
-        label: 'Passed',
-        count: attempts.filter((attempt) => attempt.passed).length,
-      },
-      {
-        label: 'Rejected',
-        count: attempts.filter((attempt) => !attempt.passed).length,
-      },
-    ],
-    [attempts],
-  )
-
-  const avgThreshold = attempts.length
-    ? attempts.reduce((sum, attempt) => sum + attempt.threshold, 0) / attempts.length
-    : 0.85
-
   const bestComparison = latestResult?.comparisons.reduce(
     (prev, current) => (current.probability > (prev?.probability ?? 0) ? current : prev),
     undefined as VerifyAttempt['comparisons'][number] | undefined,
@@ -202,6 +149,14 @@ const VerificationPanel = ({
         </div>
       </header>
 
+      {isVerifying && (
+        <ViewStateBanner
+          tone="loading"
+          title="Running identity test"
+          message="Submitting the latest ECG sample to backend verification."
+        />
+      )}
+
       {hasVerificationError && (
         <section className={clsx('feedback-banner', isPoorSignalError ? 'warning' : 'error')}>
           <div>
@@ -221,12 +176,12 @@ const VerificationPanel = ({
           </div>
           <div className="feedback-actions">
             {onGoToCollection && (
-              <button className="primary" onClick={onGoToCollection}>
+              <button type="button" className="primary" onClick={onGoToCollection}>
                 Collect a new ECG
               </button>
             )}
-            <button className="ghost-btn" disabled={isVerifying} onClick={handleVerify}>
-              {isVerifying ? 'Retrying…' : 'Try again'}
+            <button type="button" className="ghost-btn" disabled={isVerifying} onClick={handleVerify}>
+              {isVerifying ? 'Retrying...' : 'Try again'}
             </button>
           </div>
         </section>
@@ -256,8 +211,8 @@ const VerificationPanel = ({
               onChange={(event) => setNotes(event.target.value)}
             />
           </div>
-          <button className="primary" disabled={isVerifying} onClick={handleVerify}>
-            {isVerifying ? 'Running identity test…' : 'Run identity test'}
+          <button type="button" className="primary" disabled={isVerifying} onClick={handleVerify}>
+            {isVerifying ? 'Running identity test...' : 'Run identity test'}
           </button>
         </article>
 
@@ -328,10 +283,11 @@ const VerificationPanel = ({
               <h4>Comparison scores</h4>
               <div className="table-wrapper">
                 <table>
+                  <caption className="sr-only">Comparison scores for current verification result</caption>
                   <thead>
                     <tr>
-                      <th>Baseline</th>
-                      <th>Score</th>
+                      <th scope="col">Baseline</th>
+                      <th scope="col">Score</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -364,57 +320,9 @@ const VerificationPanel = ({
             </header>
 
             {attempts.length > 0 ? (
-              <div className="analytics-grid">
-                <div className="chart-panel">
-                  <p className="chart-title">Score scatter</p>
-                  <div className="chart-container">
-                    <ResponsiveContainer width="100%" height={280}>
-                      <ScatterChart>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(23, 33, 38, 0.12)" />
-                        <XAxis
-                          type="number"
-                          dataKey="index"
-                          name="Attempt"
-                          tickFormatter={(value) => `${Number(value) + 1}`}
-                          allowDecimals={false}
-                        />
-                        <YAxis type="number" dataKey="score" name="Score" domain={[0, 1]} />
-                        <Tooltip
-                          cursor={{ strokeDasharray: '3 3' }}
-                          formatter={(value, name) => {
-                            if (name === 'score' || name === 'threshold') return [Number(value).toFixed(3), name]
-                            return [value, name as string]
-                          }}
-                          labelFormatter={(value) => `Attempt ${Number(value) + 1}`}
-                        />
-                        <Legend />
-                        <ReferenceLine y={avgThreshold} stroke="#c2512f" strokeDasharray="4 4" label="Avg threshold" />
-                        {scatterSeries.pass.length > 0 && (
-                          <Scatter name="Pass" data={scatterSeries.pass} fill="#1f7a48" />
-                        )}
-                        {scatterSeries.fail.length > 0 && (
-                          <Scatter name="Rejected" data={scatterSeries.fail} fill="#c2512f" />
-                        )}
-                      </ScatterChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="chart-panel">
-                  <p className="chart-title">Result distribution</p>
-                  <div className="chart-container">
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={distributionData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(23, 33, 38, 0.12)" />
-                        <XAxis dataKey="label" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Bar dataKey="count" fill="#1f5f5b" name="Attempts" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
+              <Suspense fallback={<ViewStateBanner tone="loading" title="Loading charts" message="Preparing verification analytics." />}>
+                <VerificationCharts attempts={attempts} />
+              </Suspense>
             ) : (
               <div className="empty-state">
                 <p>Run a few verification attempts and the graph will populate automatically.</p>
@@ -437,13 +345,14 @@ const VerificationPanel = ({
         </header>
         <div className="table-wrapper">
           <table>
+            <caption className="sr-only">Recent verification attempts</caption>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Expected</th>
-                <th>Score</th>
-                <th>Threshold</th>
-                <th>Result</th>
+                <th scope="col">Time</th>
+                <th scope="col">Expected</th>
+                <th scope="col">Score</th>
+                <th scope="col">Threshold</th>
+                <th scope="col">Result</th>
               </tr>
             </thead>
             <tbody>
@@ -465,3 +374,4 @@ const VerificationPanel = ({
 }
 
 export default VerificationPanel
+

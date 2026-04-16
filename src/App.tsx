@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import './App.css'
-import { collectSession, fetchCurrentFitbitUser, fetchSessions, trainModel, verifyAttempt } from './api/client'
+import {
+  collectSession,
+  fetchCurrentFitbitUser,
+  fetchSessions,
+  fetchVerificationLogs,
+  trainModel,
+  verifyAttempt,
+} from './api/client'
 import type {
   CollectSessionResponse,
   CurrentFitbitUser,
@@ -10,13 +17,16 @@ import type {
   Participant,
   SessionCapturePayload,
   VerifyAttempt,
+  VerificationLogEntry,
   WorkflowLogEntry,
 } from './types'
 import { useLocalStorage } from './hooks/useLocalStorage'
-import ParticipantsTab from './components/ParticipantsTab'
-import EnrollmentWizard from './components/EnrollmentWizard'
-import VerificationPanel from './components/VerificationPanel'
-import ActivityLogPanel from './components/ActivityLogPanel'
+import ViewStateBanner from './components/ViewStateBanner'
+
+const ParticipantsTab = lazy(() => import('./components/ParticipantsTab'))
+const EnrollmentWizard = lazy(() => import('./components/EnrollmentWizard'))
+const VerificationPanel = lazy(() => import('./components/VerificationPanel'))
+const ActivityLogPanel = lazy(() => import('./components/ActivityLogPanel'))
 
 const progressFromSessions = (count: number) => Math.min(1, count / 12)
 
@@ -65,6 +75,14 @@ const workspaceTabs = [
 
 type WorkspaceView = (typeof workspaceTabs)[number]['id']
 
+const isMichelAuthenticatorLog = (log: VerificationLogEntry, connectedFitbitUserId?: string) => {
+  const fitbitUserId = log.fitbitUserId.trim().toLowerCase()
+  const alias = (log.alias ?? '').trim().toLowerCase()
+  const connectedId = (connectedFitbitUserId ?? '').trim().toLowerCase()
+  if (connectedId.length > 0 && fitbitUserId === connectedId) return true
+  return alias === 'michel' || fitbitUserId === 'michel'
+}
+
 function App() {
   const [activeView, setActiveView] = useState<WorkspaceView>('overview')
   const [selectedParticipantId, setSelectedParticipantId] = useState<string>()
@@ -86,6 +104,11 @@ function App() {
   const currentUserQuery = useQuery({
     queryKey: ['current-fitbit-user'],
     queryFn: fetchCurrentFitbitUser,
+  })
+  const verificationLogsQuery = useQuery({
+    queryKey: ['verification-logs'],
+    queryFn: () => fetchVerificationLogs({ limit: 400 }),
+    refetchInterval: 10000,
   })
 
   const participants = useMemo(() => {
@@ -115,6 +138,16 @@ function App() {
   const currentFitbitUser = currentUserQuery.data
   const connectedParticipantId = currentFitbitUser?.fitbitUserId
   const connectedParticipant = participants.find((participant) => participant.id === connectedParticipantId)
+  const michelAuthenticatorLogs = useMemo(
+    () => (verificationLogsQuery.data ?? []).filter((log) => isMichelAuthenticatorLog(log, connectedParticipantId)),
+    [verificationLogsQuery.data, connectedParticipantId],
+  )
+  const authAttemptStats = useMemo(() => {
+    const total = michelAuthenticatorLogs.length
+    const success = michelAuthenticatorLogs.filter((log) => log.authenticated).length
+    const failed = total - success
+    return { total, success, failed }
+  }, [michelAuthenticatorLogs])
 
   useEffect(() => {
     const fitbitUserId = currentFitbitUser?.fitbitUserId
@@ -231,6 +264,30 @@ function App() {
   >({
     mutationFn: (payload) => verifyAttempt(payload),
     onSuccess: (attempt, payload) => {
+      const freshLog: VerificationLogEntry = {
+        id: attempt.id,
+        fitbitUserId: attempt.participantId,
+        alias: attempt.alias,
+        attemptedAtUtc: attempt.timestamp,
+        ecgStartTimeUtc: attempt.timestamp,
+        score: attempt.score,
+        threshold: attempt.threshold,
+        authenticated: attempt.passed,
+        consensusScore: attempt.consensusScore ?? 0,
+        votesPassing: attempt.passingVotes ?? 0,
+        comparisonCount: attempt.comparisons.length,
+        confidenceLevel: attempt.confidence?.confidenceLevel ?? 0,
+        confidenceDrift: attempt.confidence?.drift ?? 0,
+        confidenceSamples: attempt.confidence?.sampleCount ?? 0,
+        label: payload.label,
+        notes: payload.notes,
+      }
+      queryClient.setQueryData<VerificationLogEntry[]>(['verification-logs'], (prev) => {
+        if (!prev) return [freshLog]
+        const deduped = prev.filter((entry) => entry.id !== freshLog.id)
+        return [freshLog, ...deduped].slice(0, 400)
+      })
+      void queryClient.invalidateQueries({ queryKey: ['verification-logs'] })
       setLatestVerify(attempt)
       setAttemptLogs((prev) => [attempt, ...prev].slice(0, 400))
       setActiveView('verify')
@@ -278,10 +335,15 @@ function App() {
   }
 
   const latestDecision = latestVerify ? (latestVerify.passed ? 'Authenticated' : 'Rejected') : 'No test yet'
+  const queryErrorMessage =
+    (sessionsQuery.error instanceof Error ? sessionsQuery.error.message : undefined) ??
+    (currentUserQuery.error instanceof Error ? currentUserQuery.error.message : undefined) ??
+    (verificationLogsQuery.error instanceof Error ? verificationLogsQuery.error.message : undefined)
+  const isInitialLoading = sessionsQuery.isLoading || currentUserQuery.isLoading || verificationLogsQuery.isLoading
   const backendStatus =
-    sessionsQuery.isLoading || currentUserQuery.isLoading
+    isInitialLoading
       ? 'Loading backend...'
-      : sessionsQuery.isError || currentUserQuery.isError
+      : sessionsQuery.isError || currentUserQuery.isError || verificationLogsQuery.isError
         ? 'Backend issue'
         : 'Backend ready'
   const selectedIdentityLabel = resolveIdentityLabel(currentFitbitUser) ?? 'Unavailable'
@@ -309,10 +371,12 @@ function App() {
           <div className="status-row">
             <span className={sessionsQuery.isError ? 'status-pill offline' : 'status-pill online'}>{backendStatus}</span>
             <button
+              type="button"
               className="ghost-btn"
               onClick={() => {
                 void sessionsQuery.refetch()
                 void currentUserQuery.refetch()
+                void verificationLogsQuery.refetch()
               }}
             >
               Refresh data
@@ -353,6 +417,7 @@ function App() {
             <nav className="workspace-nav" aria-label="Workspace views">
               {workspaceTabs.map((tab) => (
                 <button
+                  type="button"
                   key={tab.id}
                   className={tab.id === activeView ? 'workspace-tab active' : 'workspace-tab'}
                   onClick={() => openView(tab.id)}
@@ -361,7 +426,7 @@ function App() {
                   {tab.id === 'overview' && <strong>{participants.length}</strong>}
                   {tab.id === 'collect' && <strong>{latestSession ? '1' : '0'}</strong>}
                   {tab.id === 'verify' && <strong>{attemptLogs.length}</strong>}
-                  {tab.id === 'logs' && <strong>{workflowLogs.length}</strong>}
+                  {tab.id === 'logs' && <strong>{authAttemptStats.total}</strong>}
                 </button>
               ))}
             </nav>
@@ -385,7 +450,7 @@ function App() {
               </article>
               <article className="summary-tile">
                 <p className="card-title">Checks</p>
-                <p className="card-value">{attemptLogs.length}</p>
+                <p className="card-value">{authAttemptStats.total}</p>
               </article>
               <article className="summary-tile">
                 <p className="card-title">Model</p>
@@ -423,17 +488,17 @@ function App() {
             </div>
             <div className="workspace-stage-actions">
               {activeView !== 'collect' && (
-                <button className="ghost-btn" onClick={() => openView('collect')}>
+                <button type="button" className="ghost-btn" onClick={() => openView('collect')}>
                   Collect ECG
                 </button>
               )}
               {activeView !== 'verify' && (
-                <button className="ghost-btn" onClick={() => openView('verify')}>
+                <button type="button" className="ghost-btn" onClick={() => openView('verify')}>
                   Identity test
                 </button>
               )}
               {activeView !== 'logs' && (
-                <button className="ghost-btn" onClick={() => openView('logs')}>
+                <button type="button" className="ghost-btn" onClick={() => openView('logs')}>
                   Backend logs
                 </button>
               )}
@@ -441,51 +506,92 @@ function App() {
           </div>
 
           <section className="workspace-content">
-            {activeView === 'overview' && (
-              <ParticipantsTab
-                participants={participants}
-                loading={sessionsQuery.isLoading}
-                selectedParticipantId={selectedParticipantId}
-                onSelectParticipant={normalizeParticipantSelection}
-                onAliasChange={handleAliasChange}
-                onGoToEnrollment={() => openView('collect')}
-                onGoToVerification={() => openView('verify')}
-                onTrainModel={(maxPairs) => trainMutation.mutate(maxPairs)}
-                training={trainMutation.isPending}
-                lastTrainingResult={lastTrainingResult}
+            {isInitialLoading && (
+              <ViewStateBanner
+                tone="loading"
+                title="Loading workspace data"
+                message="Fetching sessions and connected Fitbit identity from backend."
               />
             )}
-
-            {activeView === 'collect' && (
-              <EnrollmentWizard
-                participant={selectedParticipant}
-                onSelectParticipant={normalizeParticipantSelection}
-                participants={participants}
-                onCapture={(payload) => collectMutation.mutateAsync(payload)}
-                isCapturing={collectMutation.isPending}
-                latestSession={latestSession}
-                errorMessage={collectMutation.error instanceof Error ? collectMutation.error.message : undefined}
-                onUseForVerification={() => openView('verify')}
-                onOpenTraining={() => openView('overview')}
+            {queryErrorMessage && (
+              <ViewStateBanner
+                tone="error"
+                title="Backend data unavailable"
+                message={queryErrorMessage}
+                actionLabel="Retry data"
+                onAction={() => {
+                  void sessionsQuery.refetch()
+                  void currentUserQuery.refetch()
+                  void verificationLogsQuery.refetch()
+                }}
               />
             )}
+            <Suspense
+              fallback={
+                <ViewStateBanner
+                  tone="loading"
+                  title="Loading screen"
+                  message="Preparing this workspace view."
+                />
+              }
+            >
+              {activeView === 'overview' && (
+                <ParticipantsTab
+                  participants={participants}
+                  loading={sessionsQuery.isLoading}
+                  errorMessage={queryErrorMessage}
+                  selectedParticipantId={selectedParticipantId}
+                  onSelectParticipant={normalizeParticipantSelection}
+                  onAliasChange={handleAliasChange}
+                  onGoToEnrollment={() => openView('collect')}
+                  onGoToVerification={() => openView('verify')}
+                  onTrainModel={(maxPairs) => trainMutation.mutate(maxPairs)}
+                  training={trainMutation.isPending}
+                  lastTrainingResult={lastTrainingResult}
+                />
+              )}
 
-            {activeView === 'verify' && (
-              <VerificationPanel
-                participants={participants}
-                connectedUser={currentFitbitUser}
-                selectedParticipantId={selectedParticipantId}
-                onSelectParticipant={normalizeParticipantSelection}
-                onVerify={handleVerify}
-                isVerifying={verifyMutation.isPending}
-                latestResult={latestVerify}
-                errorMessage={verifyMutation.error instanceof Error ? verifyMutation.error.message : undefined}
-                attempts={attemptLogs}
-                onGoToCollection={() => openView('collect')}
-              />
-            )}
+              {activeView === 'collect' && (
+                <EnrollmentWizard
+                  participant={selectedParticipant}
+                  onSelectParticipant={normalizeParticipantSelection}
+                  participants={participants}
+                  onCapture={(payload) => collectMutation.mutateAsync(payload)}
+                  isCapturing={collectMutation.isPending}
+                  latestSession={latestSession}
+                  errorMessage={collectMutation.error instanceof Error ? collectMutation.error.message : undefined}
+                  onUseForVerification={() => openView('verify')}
+                  onOpenTraining={() => openView('overview')}
+                />
+              )}
 
-            {activeView === 'logs' && <ActivityLogPanel entries={workflowLogs} />}
+              {activeView === 'verify' && (
+                <VerificationPanel
+                  participants={participants}
+                  connectedUser={currentFitbitUser}
+                  selectedParticipantId={selectedParticipantId}
+                  onSelectParticipant={normalizeParticipantSelection}
+                  onVerify={handleVerify}
+                  isVerifying={verifyMutation.isPending}
+                  latestResult={latestVerify}
+                  errorMessage={verifyMutation.error instanceof Error ? verifyMutation.error.message : undefined}
+                  attempts={attemptLogs}
+                  onGoToCollection={() => openView('collect')}
+                />
+              )}
+
+              {activeView === 'logs' && (
+                <ActivityLogPanel
+                  entries={workflowLogs}
+                  verificationLogs={michelAuthenticatorLogs}
+                  verificationStats={authAttemptStats}
+                  verificationLogsLoading={verificationLogsQuery.isLoading}
+                  verificationLogsError={
+                    verificationLogsQuery.error instanceof Error ? verificationLogsQuery.error.message : undefined
+                  }
+                />
+              )}
+            </Suspense>
           </section>
         </main>
       </section>

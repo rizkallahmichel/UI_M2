@@ -182,3 +182,22 @@ export interface WorkflowLogEntry {
   requestPayload?: unknown;
   responsePayload?: unknown;
 }
+
+export interface VerificationLogEntry {
+  id: string;
+  fitbitUserId: string;
+  alias?: string;
+  attemptedAtUtc?: string;
+  ecgStartTimeUtc?: string;
+  score: number;
+  threshold: number;
+  authenticated: boolean;
+  consensusScore: number;
+  votesPassing: number;
+  comparisonCount: number;
+  confidenceLevel: number;
+  confidenceDrift: number;
+  confidenceSamples: number;
+  label?: string;
+  notes?: string;
+}

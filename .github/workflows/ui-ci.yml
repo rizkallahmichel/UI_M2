@@ -1,0 +1,68 @@
+name: UI CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  ui-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set progressive coverage thresholds
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "main" || "${GITHUB_REF_NAME}" == "master" ]]; then
+            echo "UI_COVERAGE_STATEMENTS=37" >> "$GITHUB_ENV"
+            echo "UI_COVERAGE_BRANCHES=50" >> "$GITHUB_ENV"
+            echo "UI_COVERAGE_FUNCTIONS=47" >> "$GITHUB_ENV"
+            echo "UI_COVERAGE_LINES=37" >> "$GITHUB_ENV"
+          else
+            echo "UI_COVERAGE_STATEMENTS=35" >> "$GITHUB_ENV"
+            echo "UI_COVERAGE_BRANCHES=45" >> "$GITHUB_ENV"
+            echo "UI_COVERAGE_FUNCTIONS=45" >> "$GITHUB_ENV"
+            echo "UI_COVERAGE_LINES=35" >> "$GITHUB_ENV"
+          fi
+
+      - name: Unit tests with coverage gate
+        run: npm run test:unit -- --coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests (smoke + a11y + visual)
+        run: npm run test:e2e
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-coverage
+          path: |
+            coverage
+
+      - name: Upload Playwright report and snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-playwright-artifacts
+          path: |
+            playwright-report
+            test-results
+            tests/e2e/*.png

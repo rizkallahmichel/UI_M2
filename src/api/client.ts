@@ -14,12 +14,14 @@ import type {
   ConfidenceSnapshot,
   EcgBenchmarkRequest,
   EcgBenchmarkResponse,
+  VerificationLogEntry,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5104';
 
 const http = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -28,6 +30,14 @@ const http = axios.create({
 const extractErrorMessage = (error: unknown) => {
   if (!axios.isAxiosError(error)) {
     return error instanceof Error ? error.message : 'Unexpected API error.';
+  }
+
+  if (error.code === 'ECONNABORTED') {
+    return 'Request timeout. The backend took too long to respond. Please retry.';
+  }
+
+  if (!error.response) {
+    return 'Network error. Unable to reach the backend service.';
   }
 
   const payload = error.response?.data;
@@ -179,6 +189,25 @@ interface CurrentFitbitUserApiResponse {
   displayName?: string | null;
 }
 
+interface VerificationLogApiResponse {
+  id?: string;
+  fitbitUserId?: string | null;
+  alias?: string | null;
+  attemptedAtUtc?: string | null;
+  ecgStartTimeUtc?: string | null;
+  score?: number;
+  threshold?: number;
+  authenticated?: boolean | string | number | null;
+  consensusScore?: number;
+  votesPassing?: number;
+  comparisonCount?: number;
+  confidenceLevel?: number;
+  confidenceDrift?: number;
+  confidenceSamples?: number;
+  label?: string | null;
+  notes?: string | null;
+}
+
 interface VerifyApiResponse {
   fitbitUserId: string;
   authenticated?: boolean | string | number | null;
@@ -301,6 +330,24 @@ const adaptVerifyResponse = (response: VerifyApiResponse): VerifyAttempt => {
 };
 
 const adaptSessionRecord = (record: CollectSessionApiResponse): EcgSessionRecord => adaptCollectResponse(record);
+const adaptVerificationLog = (record: VerificationLogApiResponse): VerificationLogEntry => ({
+  id: sanitizeString(record.id) ?? randomId(),
+  fitbitUserId: sanitizeString(record.fitbitUserId) ?? 'unknown',
+  alias: sanitizeString(record.alias),
+  attemptedAtUtc: sanitizeString(record.attemptedAtUtc),
+  ecgStartTimeUtc: sanitizeString(record.ecgStartTimeUtc),
+  score: coerceNumber(record.score),
+  threshold: coerceNumber(record.threshold),
+  authenticated: coerceBoolean(record.authenticated),
+  consensusScore: coerceNumber(record.consensusScore),
+  votesPassing: Math.max(0, Math.round(coerceNumber(record.votesPassing))),
+  comparisonCount: Math.max(0, Math.round(coerceNumber(record.comparisonCount))),
+  confidenceLevel: coerceNumber(record.confidenceLevel),
+  confidenceDrift: coerceNumber(record.confidenceDrift),
+  confidenceSamples: Math.max(0, Math.round(coerceNumber(record.confidenceSamples))),
+  label: sanitizeString(record.label),
+  notes: sanitizeString(record.notes),
+});
 
 const adaptContinuousSamples = (samples: ContinuousVerifyApiResponse['samples']) =>
   samples
@@ -330,6 +377,17 @@ export const fetchCurrentFitbitUser = async (): Promise<CurrentFitbitUser> => {
     fitbitUserId: data.fitbitUserId,
     displayName: sanitizeString(data.displayName),
   };
+};
+
+export const fetchVerificationLogs = async (
+  options?: { fitbitUserId?: string; limit?: number },
+): Promise<VerificationLogEntry[]> => {
+  const params: Record<string, string | number> = {};
+  if (options?.fitbitUserId) params.fitbitUserId = options.fitbitUserId;
+  if (typeof options?.limit === 'number') params.limit = options.limit;
+
+  const { data } = await withApiError(http.get<VerificationLogApiResponse[]>('/api/ecg-auth/logs', { params }));
+  return data.map((record) => adaptVerificationLog(record));
 };
 
 export const collectSession = async (payload?: SessionCapturePayload): Promise<CollectSessionResponse> => {

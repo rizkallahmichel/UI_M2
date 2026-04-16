@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { formatDistanceToNowStrict } from 'date-fns'
 import clsx from 'clsx'
 import type { ModelTrainingResult, Participant } from '../types'
+import ViewStateBanner from './ViewStateBanner'
 
 type ParticipantsTabProps = {
   participants: Participant[]
   loading: boolean
+  errorMessage?: string
   selectedParticipantId?: string
   onSelectParticipant: (id: string) => void
   onAliasChange: (id: string, alias: string) => void
@@ -21,6 +23,7 @@ const percent = (value?: number) => (value != null ? `${(value * 100).toFixed(1)
 const ParticipantsTab = ({
   participants,
   loading,
+  errorMessage,
   selectedParticipantId,
   onSelectParticipant,
   onAliasChange,
@@ -106,6 +109,21 @@ const ParticipantsTab = ({
         </div>
       </header>
 
+      {loading && (
+        <ViewStateBanner
+          tone="loading"
+          title="Loading participants"
+          message="Fetching recorded ECG sessions to build participant profiles."
+        />
+      )}
+      {errorMessage && (
+        <ViewStateBanner
+          tone="error"
+          title="Participant data issue"
+          message={errorMessage}
+        />
+      )}
+
       <section className="participant-stats-grid participant-stats-grid-compact">
         {summaryCards.map((card) => (
           <article key={card.title} className="card summary-card compact-card">
@@ -139,7 +157,7 @@ const ParticipantsTab = ({
                 onChange={(event) => setMaxPairs(Number(event.target.value))}
               />
             </label>
-            <button className="primary train-submit" disabled={training} onClick={() => onTrainModel(maxPairs)}>
+            <button type="button" className="primary train-submit" disabled={training} onClick={() => onTrainModel(maxPairs)}>
               {training ? 'Training...' : 'Train now'}
             </button>
           </div>
@@ -222,24 +240,25 @@ const ParticipantsTab = ({
             <p>Click a row to define the expected identity for collection and identity testing.</p>
           </div>
           <div className="table-actions">
-            <button className="ghost-btn" onClick={onGoToEnrollment}>
+            <button type="button" className="ghost-btn" onClick={onGoToEnrollment}>
               Go to collection
             </button>
-            <button className="ghost-btn" onClick={onGoToVerification}>
+            <button type="button" className="ghost-btn" onClick={onGoToVerification}>
               Go to identity test
             </button>
           </div>
         </header>
         <div className="table-wrapper">
           <table>
+            <caption className="sr-only">Participants and enrollment status</caption>
             <thead>
               <tr>
-                <th>Alias</th>
-                <th>Fitbit ID</th>
-                <th>Enrollment</th>
-                <th>Sessions</th>
-                <th>Model status</th>
-                <th>Last session</th>
+                <th scope="col">Alias</th>
+                <th scope="col">Fitbit ID</th>
+                <th scope="col">Enrollment</th>
+                <th scope="col">Sessions</th>
+                <th scope="col">Model status</th>
+                <th scope="col">Last session</th>
               </tr>
             </thead>
             <tbody>

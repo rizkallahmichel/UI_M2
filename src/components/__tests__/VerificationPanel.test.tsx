@@ -113,4 +113,9 @@ describe('VerificationPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Collect a new ECG/i }))
     expect(onGoToCollection).toHaveBeenCalled()
   })
+
+  it('shows loading state while verification is running', () => {
+    renderPanel({ isVerifying: true })
+    expect(screen.getByText('Running identity test')).toBeVisible()
+  })
 })

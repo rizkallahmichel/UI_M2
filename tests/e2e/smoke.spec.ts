@@ -1,16 +1,10 @@
 import { test, expect } from '@playwright/test'
+import { mockBackend } from './utils'
 
 test.describe('ECG identity workflow smoke test', () => {
   test.beforeEach(async ({ page }) => {
     page.on('console', (message) => console.log(`[ui console] ${message.type()}: ${message.text()}`))
-    await page.route('http://localhost:5104/**', async (route) => {
-      if (route.request().url().endsWith('/api/ecg-auth/sessions')) {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-        return
-      }
-
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
-    })
+    await mockBackend(page)
   })
 
   test('switches between compact workspace views', async ({ page }) => {
