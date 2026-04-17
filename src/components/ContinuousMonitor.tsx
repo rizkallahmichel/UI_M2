@@ -17,11 +17,12 @@ type ContinuousMonitorProps = {
   latestResult: ContinuousVerifyResponse | null;
   isRunning: boolean;
   onRun: (options: ContinuousVerifyOptions) => void;
+  errorMessage?: string;
 };
 
 const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
 
-const ContinuousMonitor = ({ latestResult, isRunning, onRun }: ContinuousMonitorProps) => {
+const ContinuousMonitor = ({ latestResult, isRunning, onRun, errorMessage }: ContinuousMonitorProps) => {
   const [threshold, setThreshold] = useState(0.85);
   const [windowMinutes, setWindowMinutes] = useState(15);
   const [strideMinutes, setStrideMinutes] = useState(5);
@@ -139,6 +140,11 @@ const ContinuousMonitor = ({ latestResult, isRunning, onRun }: ContinuousMonitor
           {isRunning ? 'Running...' : `Run ${windowMinutes} min sweep`}
         </button>
       </section>
+      {errorMessage && (
+        <p className="form-hint error" role="alert">
+          {errorMessage}
+        </p>
+      )}
 
       {latestResult ? (
         <>

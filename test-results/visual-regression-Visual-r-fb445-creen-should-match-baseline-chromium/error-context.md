@@ -1,0 +1,248 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: ECG identity workflow
+      - heading "Compact workspace for collection, testing, and backend review" [level=1] [ref=e7]
+      - paragraph [ref=e8]: The interface now uses focused views instead of one long page. Switch context without scrolling through the entire project each time.
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]: Backend ready
+        - button "Refresh data" [ref=e12] [cursor=pointer]
+      - generic [ref=e13]:
+        - article [ref=e14]:
+          - paragraph [ref=e15]: Connected Fitbit identity
+          - paragraph [ref=e16]: rizkallah m.
+        - article [ref=e17]:
+          - paragraph [ref=e18]: Last ECG sample
+          - paragraph [ref=e19]: No sample yet
+        - article [ref=e20]:
+          - paragraph [ref=e21]: Last decision
+          - paragraph [ref=e22]: No test yet
+        - article [ref=e23]:
+          - paragraph [ref=e24]: Operation logs
+          - paragraph [ref=e25]: "0"
+  - generic [ref=e26]:
+    - complementary [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e30]:
+          - paragraph [ref=e31]: Workspace
+          - heading "Views" [level=2] [ref=e32]
+        - navigation "Workspace views" [ref=e33]:
+          - button "Overview 92" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]: Overview
+            - strong [ref=e36]: "92"
+          - button "Collect 0" [active] [ref=e37] [cursor=pointer]:
+            - generic [ref=e38]: Collect
+            - strong [ref=e39]: "0"
+          - button "Verify 0" [ref=e40] [cursor=pointer]:
+            - generic [ref=e41]: Verify
+            - strong [ref=e42]: "0"
+          - button "Continuous 0" [ref=e43] [cursor=pointer]:
+            - generic [ref=e44]: Continuous
+            - strong [ref=e45]: "0"
+          - button "Analytics 0" [ref=e46] [cursor=pointer]:
+            - generic [ref=e47]: Analytics
+            - strong [ref=e48]: "0"
+          - button "Backend 5" [ref=e49] [cursor=pointer]:
+            - generic [ref=e50]: Backend
+            - strong [ref=e51]: "5"
+          - button "Logs 103" [ref=e52] [cursor=pointer]:
+            - generic [ref=e53]: Logs
+            - strong [ref=e54]: "103"
+      - generic [ref=e55]:
+        - generic [ref=e57]:
+          - paragraph [ref=e58]: Quick status
+          - heading "At a glance" [level=2] [ref=e59]
+        - generic [ref=e60]:
+          - article [ref=e61]:
+            - paragraph [ref=e62]: Participants
+            - paragraph [ref=e63]: "92"
+          - article [ref=e64]:
+            - paragraph [ref=e65]: Sessions
+            - paragraph [ref=e66]: "339"
+          - article [ref=e67]:
+            - paragraph [ref=e68]: Checks
+            - paragraph [ref=e69]: "103"
+          - article [ref=e70]:
+            - paragraph [ref=e71]: Model
+            - paragraph [ref=e72]: Untrained
+      - generic [ref=e73]:
+        - generic [ref=e75]:
+          - paragraph [ref=e76]: How it works
+          - heading "Flow" [level=2] [ref=e77]
+        - list [ref=e78]:
+          - listitem [ref=e79]: Overview keeps participants and model controls in one place.
+          - listitem [ref=e80]: Collect only opens the ECG capture flow.
+          - listitem [ref=e81]: Verify uses the connected Fitbit account as the backend identity baseline.
+          - listitem [ref=e82]: Continuous runs rolling authentication windows.
+          - listitem [ref=e83]: Analytics includes benchmark metrics and training images.
+          - listitem [ref=e84]: Backend exposes overview, HRV, and all Fitbit raw data.
+          - listitem [ref=e85]: Logs centralize backend payloads when you need detail.
+    - main [ref=e86]:
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - paragraph [ref=e89]: Current view
+          - heading "Collect" [level=2] [ref=e90]
+          - paragraph [ref=e91]: Collect a new ECG sample and review its signal summary in one focused screen.
+        - generic [ref=e92]:
+          - button "Identity test" [ref=e93] [cursor=pointer]
+          - button "Continuous" [ref=e94] [cursor=pointer]
+          - button "Analytics" [ref=e95] [cursor=pointer]
+          - button "Backend explorer" [ref=e96] [cursor=pointer]
+          - button "Backend logs" [ref=e97] [cursor=pointer]
+      - region "Collect a new ECG sample" [ref=e99]:
+        - generic [ref=e100]:
+          - generic [ref=e101]:
+            - paragraph [ref=e102]: Step 2
+            - heading "Collect a new ECG sample" [level=2] [ref=e103]
+            - paragraph [ref=e104]: No timer here. Follow the instructions, start the reading on the watch, then click once to collect.
+          - generic [ref=e105]:
+            - generic [ref=e106]: Expected identity
+            - combobox "Expected identity" [ref=e107]:
+              - option "No preset selected"
+              - option "0096b6e30c68"
+              - option "00d0b8a6ce0c"
+              - option "019a00bb998f"
+              - option "03060e1f0bb3"
+              - option "04d1b1c89b6e"
+              - option "08e0a68d24a6"
+              - option "0cdd32db89b6"
+              - option "148d41503365"
+              - option "172aef8b057f"
+              - option "1a3d49239ceb"
+              - option "1a559e40d1cc"
+              - option "1a8a3e1ebdea"
+              - option "1c7f740de755"
+              - option "2090b606136c"
+              - option "21f3f071acc7"
+              - option "25d794a696df"
+              - option "28c307910c87"
+              - option "2bfc508aeeec"
+              - option "2f88d1e0dc1c"
+              - option "309b45e78507"
+              - option "31becc78c867"
+              - option "348fd9d92de2"
+              - option "36346b521d18"
+              - option "38ae3e27e204"
+              - option "3effc5c6416b"
+              - option "4699e7e64fce"
+              - option "48832889d294"
+              - option "4de9ec7dee08"
+              - option "505067184496"
+              - option "52d1dcc3d1a5"
+              - option "53c4acec10c3"
+              - option "544c141e4f59"
+              - option "54f10d7ba323"
+              - option "593400871906"
+              - option "593be37dc9ea"
+              - option "5cc9834a0130"
+              - option "63b828295693"
+              - option "6487394bbaee"
+              - option "66b27fa1f956"
+              - option "6773d942fb6f"
+              - option "68a34545475c"
+              - option "6c7dfe708a03"
+              - option "6dc16b0b1361"
+              - option "6f54adca0696"
+              - option "6fa9e9e999f5"
+              - option "731a85652b42"
+              - option "79291d5ed930"
+              - option "7ae8269adcd4"
+              - option "7c7243267b1a"
+              - option "7d7d3a1a99ce"
+              - option "7df8602bcad7"
+              - option "8108c10de8b2"
+              - option "817cd56bbbef"
+              - option "826d76952a81"
+              - option "879d9a51dba0"
+              - option "8d500790c38c"
+              - option "9bda349fcc89"
+              - option "9bf6f16e88a2"
+              - option "9e83b9501e8e"
+              - option "rizkallah m." [selected]
+              - option "PERS2"
+              - option "a13eba880783"
+              - option "a217c0ef48ed"
+              - option "a4ffb089c859"
+              - option "a58e063d7092"
+              - option "a6c4ed1e77c4"
+              - option "a909bc86e68c"
+              - option "a9954f10a12f"
+              - option "ad1174510f59"
+              - option "aff29a86880a"
+              - option "b1d5530dd4e1"
+              - option "bc355c4f3120"
+              - option "be44715471be"
+              - option "c2187933b5ad"
+              - option "c658ce64cdc6"
+              - option "c6b2ec721d82"
+              - option "c6d9bea497a9"
+              - option "cbfe0d11f9bb"
+              - option "d13836579430"
+              - option "d4f3d68bacd8"
+              - option "d9e0cc47e3d7"
+              - option "de70b54ef16e"
+              - option "e334f0a33d81"
+              - option "e59eb6194dd5"
+              - option "e6a5c774b903"
+              - option "e8f95b4dc27f"
+              - option "eb3908f3ecbc"
+              - option "ece4a60048b0"
+              - option "ecfdea00e795"
+              - option "f37c3544f83f"
+              - option "f6aa6588b029"
+              - option "fe39557639f4"
+        - generic [ref=e108]:
+          - article [ref=e109]:
+            - paragraph [ref=e110]: Prepare
+            - heading "Operator instructions" [level=3] [ref=e111]
+            - list [ref=e112]:
+              - listitem [ref=e113]: Ask the person to sit still and keep the wrist relaxed.
+              - listitem [ref=e114]: Open the Fitbit ECG app and wait until the reading screen is ready.
+              - listitem [ref=e115]: When the watch capture starts, click the button below to fetch and save the sample.
+            - generic [ref=e116]:
+              - heading "Optional context" [level=4] [ref=e117]
+              - generic [ref=e118]:
+                - generic [ref=e119]:
+                  - generic [ref=e120]: Activity
+                  - textbox "Activity" [ref=e121]:
+                    - /placeholder: resting, walking, post-run
+                - generic [ref=e122]:
+                  - generic [ref=e123]: Stress level
+                  - textbox "Stress level" [ref=e124]:
+                    - /placeholder: calm, elevated
+                - generic [ref=e125]:
+                  - generic [ref=e126]: Sensor placement
+                  - textbox "Sensor placement" [ref=e127]:
+                    - /placeholder: left wrist
+                - generic [ref=e128]:
+                  - generic [ref=e129]: Device model
+                  - textbox "Device model" [ref=e130]:
+                    - /placeholder: Charge 6
+              - generic [ref=e131]:
+                - generic [ref=e132]: Tags
+                - textbox "Tags" [ref=e133]:
+                  - /placeholder: seated, post-exercise
+              - generic [ref=e134]:
+                - generic [ref=e135]: Notes
+                - textbox "Notes" [ref=e136]:
+                  - /placeholder: Anything useful about the capture conditions
+            - button "Collect ECG sample" [ref=e137] [cursor=pointer]
+          - article [ref=e138]:
+            - paragraph [ref=e139]: Collecting
+            - heading "Waiting for backend capture" [level=3] [ref=e140]
+            - paragraph [ref=e141]: The UI stays simple here on purpose. Keep the watch stable until the backend returns the ECG session.
+            - generic [ref=e142]:
+              - paragraph [ref=e143]: "What the system is doing now:"
+              - list [ref=e144]:
+                - listitem [ref=e145]: Reading the latest ECG session from the backend
+                - listitem [ref=e146]: Extracting waveform and HRV features
+                - listitem [ref=e147]: Preparing the sample for enrollment and identity testing
+          - article [ref=e148]:
+            - paragraph [ref=e149]: Ready
+            - heading "Collected sample summary" [level=3] [ref=e150]
+            - paragraph [ref=e151]: Start a collection to view the sample summary.
+```

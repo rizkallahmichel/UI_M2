@@ -2,16 +2,24 @@ import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import './App.css'
 import {
+  benchmarkEcgId,
   collectSession,
+  fetchAllFitbitData,
   fetchCurrentFitbitUser,
+  fetchDataOverview,
   fetchSessions,
+  fetchFitbitHrv,
   fetchVerificationLogs,
+  runContinuousVerify,
   trainModel,
   verifyAttempt,
 } from './api/client'
 import type {
   CollectSessionResponse,
+  ContinuousVerifyOptions,
+  ContinuousVerifyResponse,
   CurrentFitbitUser,
+  EcgBenchmarkResponse,
   EcgSessionRecord,
   ModelTrainingResult,
   Participant,
@@ -27,6 +35,9 @@ const ParticipantsTab = lazy(() => import('./components/ParticipantsTab'))
 const EnrollmentWizard = lazy(() => import('./components/EnrollmentWizard'))
 const VerificationPanel = lazy(() => import('./components/VerificationPanel'))
 const ActivityLogPanel = lazy(() => import('./components/ActivityLogPanel'))
+const ContinuousMonitor = lazy(() => import('./components/ContinuousMonitor'))
+const AnalyticsTab = lazy(() => import('./components/AnalyticsTab'))
+const BackendExplorer = lazy(() => import('./components/BackendExplorer'))
 
 const progressFromSessions = (count: number) => Math.min(1, count / 12)
 
@@ -70,6 +81,9 @@ const workspaceTabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'collect', label: 'Collect' },
   { id: 'verify', label: 'Verify' },
+  { id: 'continuous', label: 'Continuous' },
+  { id: 'analytics', label: 'Analytics' },
+  { id: 'backend', label: 'Backend' },
   { id: 'logs', label: 'Logs' },
 ] as const
 
@@ -89,8 +103,12 @@ function App() {
   const [selectionMode, setSelectionMode] = useState<'auto' | 'user'>('auto')
   const [latestSession, setLatestSession] = useState<CollectSessionResponse | null>(null)
   const [latestVerify, setLatestVerify] = useState<VerifyAttempt | null>(null)
+  const [latestContinuous, setLatestContinuous] = useState<ContinuousVerifyResponse | null>(null)
   const [attemptLogs, setAttemptLogs] = useState<VerifyAttempt[]>([])
   const [lastTrainingResult, setLastTrainingResult] = useState<ModelTrainingResult | null>(null)
+  const [lastBenchmarkResult, setLastBenchmarkResult] = useState<EcgBenchmarkResponse | null>(null)
+  const [lastBenchmarkError, setLastBenchmarkError] = useState<string | undefined>()
+  const [lastBenchmarkRunAt, setLastBenchmarkRunAt] = useState<string | undefined>()
   const [lastTrainedAt, setLastTrainedAt] = useState<string | undefined>()
   const [aliasMap, setAliasMap] = useLocalStorage<Record<string, string>>('ui:fitbit-aliases', {})
   const [workflowLogs, setWorkflowLogs] = useState<WorkflowLogEntry[]>([])
@@ -109,6 +127,18 @@ function App() {
     queryKey: ['verification-logs'],
     queryFn: () => fetchVerificationLogs({ limit: 400 }),
     refetchInterval: 10000,
+  })
+  const dataOverviewQuery = useQuery({
+    queryKey: ['data-overview'],
+    queryFn: fetchDataOverview,
+  })
+  const hrvQuery = useQuery({
+    queryKey: ['fitbit-hrv'],
+    queryFn: fetchFitbitHrv,
+  })
+  const fitbitAllDataQuery = useQuery({
+    queryKey: ['fitbit-all-data'],
+    queryFn: fetchAllFitbitData,
   })
 
   const participants = useMemo(() => {
@@ -260,7 +290,14 @@ function App() {
   const verifyMutation = useMutation<
     VerifyAttempt,
     Error,
-    { threshold: number; label?: 'genuine' | 'impostor'; notes?: string; alias?: string }
+    {
+      threshold: number
+      label?: 'genuine' | 'impostor'
+      notes?: string
+      alias?: string
+      claimedFitbitUserId?: string
+      impostorAttempt?: boolean
+    }
   >({
     mutationFn: (payload) => verifyAttempt(payload),
     onSuccess: (attempt, payload) => {
@@ -313,6 +350,62 @@ function App() {
     },
   })
 
+  const continuousMutation = useMutation<ContinuousVerifyResponse, Error, ContinuousVerifyOptions>({
+    mutationFn: (payload) => runContinuousVerify(payload),
+    onSuccess: (result, payload) => {
+      setLatestContinuous(result)
+      setActiveView('continuous')
+      appendLogEntry({
+        scope: 'verification',
+        status: 'success',
+        title: 'Continuous verify completed',
+        summary: `${result.authenticated ? 'All windows passed' : 'Some windows failed'} (mean ${result.rollingMeanScore.toFixed(3)}).`,
+        requestPayload: payload,
+        responsePayload: result,
+      })
+    },
+    onError: (error, payload) => {
+      appendLogEntry({
+        scope: 'verification',
+        status: 'error',
+        title: 'Continuous verify failed',
+        summary: error.message,
+        requestPayload: payload,
+        responsePayload: { error: error.message },
+      })
+    },
+  })
+
+  const benchmarkMutation = useMutation<EcgBenchmarkResponse, Error, { maxPairsPerUser?: number; testFraction?: number }>({
+    mutationFn: (payload) => benchmarkEcgId(payload),
+    onSuccess: (result, payload) => {
+      setLastBenchmarkResult(result)
+      setLastBenchmarkRunAt(new Date().toISOString())
+      setLastBenchmarkError(undefined)
+      setActiveView('analytics')
+      appendLogEntry({
+        scope: 'training',
+        status: 'success',
+        title: 'ECG-ID benchmark completed',
+        summary: `Accuracy ${(result.metrics.accuracy * 100).toFixed(1)}% on ${result.dataset.toUpperCase()}.`,
+        requestPayload: payload,
+        responsePayload: result,
+      })
+    },
+    onError: (error, payload) => {
+      setLastBenchmarkResult(null)
+      setLastBenchmarkError(error.message)
+      appendLogEntry({
+        scope: 'training',
+        status: 'error',
+        title: 'ECG-ID benchmark failed',
+        summary: error.message,
+        requestPayload: payload,
+        responsePayload: { error: error.message },
+      })
+    },
+  })
+
   const handleAliasChange = (participantId: string, alias: string) => {
     setAliasMap((prev) => ({ ...prev, [participantId]: alias }))
   }
@@ -325,12 +418,20 @@ function App() {
     return selectedParticipant?.id
   }
 
-  const handleVerify = (threshold: number, label?: 'genuine' | 'impostor', notes?: string) => {
+  const handleVerify = (
+    threshold: number,
+    label?: 'genuine' | 'impostor',
+    notes?: string,
+    claimedFitbitUserId?: string,
+    impostorAttempt?: boolean,
+  ) => {
     verifyMutation.mutate({
       threshold,
       label,
       notes,
       alias: resolveIdentityLabel(currentFitbitUser),
+      claimedFitbitUserId,
+      impostorAttempt,
     })
   }
 
@@ -352,6 +453,9 @@ function App() {
     'Overview keeps participants and model controls in one place.',
     'Collect only opens the ECG capture flow.',
     'Verify uses the connected Fitbit account as the backend identity baseline.',
+    'Continuous runs rolling authentication windows.',
+    'Analytics includes benchmark metrics and training images.',
+    'Backend exposes overview, HRV, and all Fitbit raw data.',
     'Logs centralize backend payloads when you need detail.',
   ]
 
@@ -426,6 +530,9 @@ function App() {
                   {tab.id === 'overview' && <strong>{participants.length}</strong>}
                   {tab.id === 'collect' && <strong>{latestSession ? '1' : '0'}</strong>}
                   {tab.id === 'verify' && <strong>{attemptLogs.length}</strong>}
+                  {tab.id === 'continuous' && <strong>{latestContinuous?.samples.length ?? 0}</strong>}
+                  {tab.id === 'analytics' && <strong>{lastBenchmarkResult ? '1' : '0'}</strong>}
+                  {tab.id === 'backend' && <strong>{dataOverviewQuery.data?.collections.length ?? 0}</strong>}
                   {tab.id === 'logs' && <strong>{authAttemptStats.total}</strong>}
                 </button>
               ))}
@@ -483,6 +590,9 @@ function App() {
                 {activeView === 'overview' && 'Manage participants, aliases, and model training without leaving this view.'}
                 {activeView === 'collect' && 'Collect a new ECG sample and review its signal summary in one focused screen.'}
                 {activeView === 'verify' && 'Run the identity test against the connected Fitbit account and inspect the backend verdict.'}
+                {activeView === 'continuous' && 'Run rolling identity checks over recent Fitbit ECG windows.'}
+                {activeView === 'analytics' && 'Compare benchmark and wearable performance, then review training visuals.'}
+                {activeView === 'backend' && 'Inspect backend summaries and raw payloads for all major API endpoints.'}
                 {activeView === 'logs' && 'Inspect backend payloads and the exact operation history without cluttering the main flow.'}
               </p>
             </div>
@@ -495,6 +605,21 @@ function App() {
               {activeView !== 'verify' && (
                 <button type="button" className="ghost-btn" onClick={() => openView('verify')}>
                   Identity test
+                </button>
+              )}
+              {activeView !== 'continuous' && (
+                <button type="button" className="ghost-btn" onClick={() => openView('continuous')}>
+                  Continuous
+                </button>
+              )}
+              {activeView !== 'analytics' && (
+                <button type="button" className="ghost-btn" onClick={() => openView('analytics')}>
+                  Analytics
+                </button>
+              )}
+              {activeView !== 'backend' && (
+                <button type="button" className="ghost-btn" onClick={() => openView('backend')}>
+                  Backend explorer
                 </button>
               )}
               {activeView !== 'logs' && (
@@ -577,6 +702,47 @@ function App() {
                   errorMessage={verifyMutation.error instanceof Error ? verifyMutation.error.message : undefined}
                   attempts={attemptLogs}
                   onGoToCollection={() => openView('collect')}
+                />
+              )}
+
+              {activeView === 'continuous' && (
+                <ContinuousMonitor
+                  latestResult={latestContinuous}
+                  isRunning={continuousMutation.isPending}
+                  onRun={(payload) => continuousMutation.mutate(payload)}
+                  errorMessage={continuousMutation.error instanceof Error ? continuousMutation.error.message : undefined}
+                />
+              )}
+
+              {activeView === 'analytics' && (
+                <AnalyticsTab
+                  attempts={attemptLogs}
+                  participants={participants}
+                  lastRefreshed={lastBenchmarkRunAt}
+                  onRefresh={() => void verificationLogsQuery.refetch()}
+                  benchmark={lastBenchmarkResult ?? undefined}
+                  benchmarkLoading={benchmarkMutation.isPending}
+                  benchmarkError={lastBenchmarkError}
+                  onRunBenchmark={(options) => benchmarkMutation.mutate(options ?? {})}
+                  benchmarkDefaults={{ maxPairsPerUser: 600, testFraction: 0.4 }}
+                  lastTrainingResult={lastTrainingResult}
+                />
+              )}
+
+              {activeView === 'backend' && (
+                <BackendExplorer
+                  overview={dataOverviewQuery.data}
+                  overviewLoading={dataOverviewQuery.isLoading}
+                  overviewError={dataOverviewQuery.error instanceof Error ? dataOverviewQuery.error.message : undefined}
+                  hrvData={hrvQuery.data}
+                  hrvLoading={hrvQuery.isLoading}
+                  hrvError={hrvQuery.error instanceof Error ? hrvQuery.error.message : undefined}
+                  fitbitData={fitbitAllDataQuery.data}
+                  fitbitDataLoading={fitbitAllDataQuery.isLoading}
+                  fitbitDataError={fitbitAllDataQuery.error instanceof Error ? fitbitAllDataQuery.error.message : undefined}
+                  onRefreshOverview={() => void dataOverviewQuery.refetch()}
+                  onRefreshHrv={() => void hrvQuery.refetch()}
+                  onRefreshFitbitData={() => void fitbitAllDataQuery.refetch()}
                 />
               )}
 

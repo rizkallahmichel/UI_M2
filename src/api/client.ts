@@ -14,6 +14,7 @@ import type {
   ConfidenceSnapshot,
   EcgBenchmarkRequest,
   EcgBenchmarkResponse,
+  EcgDataOverviewResponse,
   VerificationLogEntry,
 } from '../types';
 
@@ -233,6 +234,47 @@ interface ContinuousVerifyApiResponse {
   }>;
 }
 
+interface EcgDataOverviewApiResponse {
+  collections?: Array<{
+    name?: string;
+    documentCount?: number;
+    lastUpdatedUtc?: string | null;
+    summary?: string;
+  }>;
+  participants?: Array<{
+    fitbitUserId?: string;
+    sessionCount?: number;
+    lastSessionAtUtc?: string | null;
+  }>;
+  recentSessions?: Array<{
+    documentId?: string;
+    fitbitUserId?: string;
+    dataSource?: string;
+    ecgStartTimeUtc?: string | null;
+    signalQualityScore?: number;
+    tags?: Array<string | null>;
+  }>;
+  recentVerificationLogs?: Array<{
+    fitbitUserId?: string;
+    attemptedAtUtc?: string | null;
+    authenticated?: boolean | string | number | null;
+    score?: number;
+    threshold?: number;
+    confidenceLevel?: number;
+  }>;
+  modelState?: {
+    lastTrainedUtc?: string | null;
+    sessionCount?: number;
+    sessionCountAtLastTrain?: number;
+    retrainPending?: boolean | string | number | null;
+    retrainReason?: string | null;
+    lastAccuracy?: number | null;
+    lastAreaUnderRocCurve?: number | null;
+    lastF1Score?: number | null;
+  } | null;
+  notes?: Array<string | null>;
+}
+
 const adaptVerifyComparisons = (scores: number[]): VerifyComparison[] =>
   scores.map((probability, idx) => ({
     id: `baseline-${idx + 1}`,
@@ -366,6 +408,55 @@ const adaptContinuousResponse = (response: ContinuousVerifyApiResponse): Continu
   samples: adaptContinuousSamples(response.samples ?? []),
 });
 
+const adaptDataOverviewResponse = (response: EcgDataOverviewApiResponse): EcgDataOverviewResponse => ({
+  collections: (response.collections ?? []).map((item) => ({
+    name: sanitizeString(item.name) ?? 'unknown',
+    documentCount: Math.max(0, Math.round(coerceNumber(item.documentCount))),
+    lastUpdatedUtc: sanitizeString(item.lastUpdatedUtc),
+    summary: sanitizeString(item.summary) ?? '',
+  })),
+  participants: (response.participants ?? []).map((item) => ({
+    fitbitUserId: sanitizeString(item.fitbitUserId) ?? 'unknown',
+    sessionCount: Math.max(0, Math.round(coerceNumber(item.sessionCount))),
+    lastSessionAtUtc: sanitizeString(item.lastSessionAtUtc),
+  })),
+  recentSessions: (response.recentSessions ?? []).map((item) => ({
+    documentId: sanitizeString(item.documentId) ?? randomId(),
+    fitbitUserId: sanitizeString(item.fitbitUserId) ?? 'unknown',
+    dataSource: sanitizeString(item.dataSource) ?? 'unknown',
+    ecgStartTimeUtc: sanitizeString(item.ecgStartTimeUtc),
+    signalQualityScore: coerceNumber(item.signalQualityScore),
+    tags: adaptTags(item.tags),
+  })),
+  recentVerificationLogs: (response.recentVerificationLogs ?? []).map((item) => ({
+    fitbitUserId: sanitizeString(item.fitbitUserId) ?? 'unknown',
+    attemptedAtUtc: sanitizeString(item.attemptedAtUtc),
+    authenticated: coerceBoolean(item.authenticated),
+    score: coerceNumber(item.score),
+    threshold: coerceNumber(item.threshold),
+    confidenceLevel: coerceNumber(item.confidenceLevel),
+  })),
+  modelState: response.modelState
+    ? {
+        lastTrainedUtc: sanitizeString(response.modelState.lastTrainedUtc),
+        sessionCount: Math.max(0, Math.round(coerceNumber(response.modelState.sessionCount))),
+        sessionCountAtLastTrain: Math.max(0, Math.round(coerceNumber(response.modelState.sessionCountAtLastTrain))),
+        retrainPending: coerceBoolean(response.modelState.retrainPending),
+        retrainReason: sanitizeString(response.modelState.retrainReason),
+        lastAccuracy:
+          response.modelState.lastAccuracy == null ? undefined : coerceNumber(response.modelState.lastAccuracy),
+        lastAreaUnderRocCurve:
+          response.modelState.lastAreaUnderRocCurve == null
+            ? undefined
+            : coerceNumber(response.modelState.lastAreaUnderRocCurve),
+        lastF1Score: response.modelState.lastF1Score == null ? undefined : coerceNumber(response.modelState.lastF1Score),
+      }
+    : undefined,
+  notes: (response.notes ?? [])
+    .map((item) => sanitizeString(item))
+    .filter((item): item is string => Boolean(item)),
+});
+
 export const fetchSessions = async (): Promise<EcgSessionRecord[]> => {
   const { data } = await withApiError(http.get<CollectSessionApiResponse[]>('/api/ecg-auth/sessions'));
   return data.map((record) => adaptSessionRecord(record));
@@ -397,7 +488,9 @@ export const collectSession = async (payload?: SessionCapturePayload): Promise<C
 };
 
 export const trainModel = async (maxPairsPerUser: number): Promise<ModelTrainingResult> => {
-  const { data } = await withApiError(http.post<ModelTrainingResult>(`/api/ecg-auth/train?maxPairsPerUser=${maxPairsPerUser}`));
+  const { data } = await withApiError(
+    http.post<ModelTrainingResult>(`/api/ecg-auth/train?maxPairsPerUser=${maxPairsPerUser}`, undefined, { timeout: 180000 }),
+  );
   return {
     ...data,
     rawPayload: data as unknown as Record<string, unknown>,
@@ -409,10 +502,17 @@ interface VerifyOptions {
   label?: 'genuine' | 'impostor';
   notes?: string;
   alias?: string;
+  claimedFitbitUserId?: string;
+  impostorAttempt?: boolean;
 }
 
 export const verifyAttempt = async (options: VerifyOptions): Promise<VerifyAttempt> => {
-  const { data } = await withApiError(http.post<VerifyApiResponse>(`/api/ecg-auth/verify?threshold=${options.threshold}`));
+  const headers: Record<string, string> = {};
+  if (options.claimedFitbitUserId?.trim()) headers['X-Claimed-Fitbit-UserId'] = options.claimedFitbitUserId.trim();
+  if (options.impostorAttempt) headers['X-Impostor-Attempt'] = 'true';
+  const { data } = await withApiError(
+    http.post<VerifyApiResponse>(`/api/ecg-auth/verify?threshold=${options.threshold}`, undefined, { headers }),
+  );
   const attempt = adaptVerifyResponse(data);
   return {
     ...attempt,
@@ -441,6 +541,42 @@ export const benchmarkEcgId = async (
   if (typeof options?.maxPairsPerUser === 'number') payload.maxPairsPerUser = options.maxPairsPerUser;
   if (typeof options?.testFraction === 'number') payload.testFraction = options.testFraction;
 
-  const { data } = await withApiError(http.post<EcgBenchmarkResponse>('/api/ecg-auth/benchmark-ecg-id', payload));
+  const { data } = await withApiError(
+    http.post<EcgBenchmarkResponse>('/api/ecg-auth/benchmark-ecg-id', payload, { timeout: 180000 }),
+  );
   return data;
+};
+
+export const fetchDataOverview = async (): Promise<EcgDataOverviewResponse> => {
+  const { data } = await withApiError(http.get<EcgDataOverviewApiResponse>('/api/ecg-auth/data-overview'));
+  return adaptDataOverviewResponse(data);
+};
+
+export const fetchFitbitHrv = async (): Promise<Record<string, unknown>> => {
+  const { data } = await withApiError(http.get('/api/fitbit/hrv'));
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data) as Record<string, unknown>;
+    } catch {
+      return { raw: data };
+    }
+  }
+  return (data ?? {}) as Record<string, unknown>;
+};
+
+export const fetchAllFitbitData = async (): Promise<Array<Record<string, unknown>>> => {
+  const { data } = await withApiError(http.get('/api/fitbit/all-data'));
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data) as Array<Record<string, unknown>>;
+    } catch {
+      return [{ raw: data }];
+    }
+  }
+
+  if (Array.isArray(data)) {
+    return data as Array<Record<string, unknown>>;
+  }
+
+  return [((data ?? {}) as Record<string, unknown>)];
 };

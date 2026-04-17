@@ -35,7 +35,7 @@ describe('api client verifyAttempt', () => {
 
     const result = await verifyAttempt({ threshold: 0.85 })
 
-    expect(post).toHaveBeenCalledWith('/api/ecg-auth/verify?threshold=0.85')
+    expect(post).toHaveBeenCalledWith('/api/ecg-auth/verify?threshold=0.85', undefined, { headers: {} })
     expect(result.participantId).toBe('user-42')
     expect(result.passed).toBe(false)
   })

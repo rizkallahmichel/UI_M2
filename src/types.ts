@@ -106,6 +106,57 @@ export interface EcgBenchmarkResponse {
   metrics: ModelTrainingResult;
 }
 
+export interface EcgCollectionOverview {
+  name: string;
+  documentCount: number;
+  lastUpdatedUtc?: string;
+  summary: string;
+}
+
+export interface EcgParticipantOverview {
+  fitbitUserId: string;
+  sessionCount: number;
+  lastSessionAtUtc?: string;
+}
+
+export interface EcgSessionPreview {
+  documentId: string;
+  fitbitUserId: string;
+  dataSource: string;
+  ecgStartTimeUtc?: string;
+  signalQualityScore: number;
+  tags: string[];
+}
+
+export interface EcgVerificationLogPreview {
+  fitbitUserId: string;
+  attemptedAtUtc?: string;
+  authenticated: boolean;
+  score: number;
+  threshold: number;
+  confidenceLevel: number;
+}
+
+export interface EcgModelStateOverview {
+  lastTrainedUtc?: string;
+  sessionCount: number;
+  sessionCountAtLastTrain: number;
+  retrainPending: boolean;
+  retrainReason?: string;
+  lastAccuracy?: number;
+  lastAreaUnderRocCurve?: number;
+  lastF1Score?: number;
+}
+
+export interface EcgDataOverviewResponse {
+  collections: EcgCollectionOverview[];
+  participants: EcgParticipantOverview[];
+  recentSessions: EcgSessionPreview[];
+  recentVerificationLogs: EcgVerificationLogPreview[];
+  modelState?: EcgModelStateOverview;
+  notes: string[];
+}
+
 export interface ConfidenceSnapshot {
   userId: string;
   sampleCount: number;

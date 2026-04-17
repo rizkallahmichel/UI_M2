@@ -1,0 +1,138 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: ECG identity workflow
+      - heading "Compact workspace for collection, testing, and backend review" [level=1] [ref=e7]
+      - paragraph [ref=e8]: The interface now uses focused views instead of one long page. Switch context without scrolling through the entire project each time.
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]: Backend ready
+        - button "Refresh data" [ref=e12] [cursor=pointer]
+      - generic [ref=e13]:
+        - article [ref=e14]:
+          - paragraph [ref=e15]: Connected Fitbit identity
+          - paragraph [ref=e16]: rizkallah m.
+        - article [ref=e17]:
+          - paragraph [ref=e18]: Last ECG sample
+          - paragraph [ref=e19]: No sample yet
+        - article [ref=e20]:
+          - paragraph [ref=e21]: Last decision
+          - paragraph [ref=e22]: No test yet
+        - article [ref=e23]:
+          - paragraph [ref=e24]: Operation logs
+          - paragraph [ref=e25]: "0"
+  - generic [ref=e26]:
+    - complementary [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e30]:
+          - paragraph [ref=e31]: Workspace
+          - heading "Views" [level=2] [ref=e32]
+        - navigation "Workspace views" [ref=e33]:
+          - button "Overview 92" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]: Overview
+            - strong [ref=e36]: "92"
+          - button "Collect 0" [ref=e37] [cursor=pointer]:
+            - generic [ref=e38]: Collect
+            - strong [ref=e39]: "0"
+          - button "Verify 0" [active] [ref=e40] [cursor=pointer]:
+            - generic [ref=e41]: Verify
+            - strong [ref=e42]: "0"
+          - button "Continuous 0" [ref=e43] [cursor=pointer]:
+            - generic [ref=e44]: Continuous
+            - strong [ref=e45]: "0"
+          - button "Analytics 0" [ref=e46] [cursor=pointer]:
+            - generic [ref=e47]: Analytics
+            - strong [ref=e48]: "0"
+          - button "Backend 5" [ref=e49] [cursor=pointer]:
+            - generic [ref=e50]: Backend
+            - strong [ref=e51]: "5"
+          - button "Logs 103" [ref=e52] [cursor=pointer]:
+            - generic [ref=e53]: Logs
+            - strong [ref=e54]: "103"
+      - generic [ref=e55]:
+        - generic [ref=e57]:
+          - paragraph [ref=e58]: Quick status
+          - heading "At a glance" [level=2] [ref=e59]
+        - generic [ref=e60]:
+          - article [ref=e61]:
+            - paragraph [ref=e62]: Participants
+            - paragraph [ref=e63]: "92"
+          - article [ref=e64]:
+            - paragraph [ref=e65]: Sessions
+            - paragraph [ref=e66]: "339"
+          - article [ref=e67]:
+            - paragraph [ref=e68]: Checks
+            - paragraph [ref=e69]: "103"
+          - article [ref=e70]:
+            - paragraph [ref=e71]: Model
+            - paragraph [ref=e72]: Untrained
+      - generic [ref=e73]:
+        - generic [ref=e75]:
+          - paragraph [ref=e76]: How it works
+          - heading "Flow" [level=2] [ref=e77]
+        - list [ref=e78]:
+          - listitem [ref=e79]: Overview keeps participants and model controls in one place.
+          - listitem [ref=e80]: Collect only opens the ECG capture flow.
+          - listitem [ref=e81]: Verify uses the connected Fitbit account as the backend identity baseline.
+          - listitem [ref=e82]: Continuous runs rolling authentication windows.
+          - listitem [ref=e83]: Analytics includes benchmark metrics and training images.
+          - listitem [ref=e84]: Backend exposes overview, HRV, and all Fitbit raw data.
+          - listitem [ref=e85]: Logs centralize backend payloads when you need detail.
+    - main [ref=e86]:
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - paragraph [ref=e89]: Current view
+          - heading "Verify" [level=2] [ref=e90]
+          - paragraph [ref=e91]: Run the identity test against the connected Fitbit account and inspect the backend verdict.
+        - generic [ref=e92]:
+          - button "Collect ECG" [ref=e93] [cursor=pointer]
+          - button "Continuous" [ref=e94] [cursor=pointer]
+          - button "Analytics" [ref=e95] [cursor=pointer]
+          - button "Backend explorer" [ref=e96] [cursor=pointer]
+          - button "Backend logs" [ref=e97] [cursor=pointer]
+      - region "Identity test" [ref=e99]:
+        - generic [ref=e100]:
+          - generic [ref=e101]:
+            - paragraph [ref=e102]: Step 3
+            - heading "Identity test" [level=2] [ref=e103]
+            - paragraph [ref=e104]: Run one check and immediately see whether the ECG matches the connected Fitbit account baseline.
+          - generic [ref=e105]:
+            - generic [ref=e106]: Connected Fitbit identity
+            - combobox "Connected Fitbit identity" [disabled] [ref=e107]:
+              - option "rizkallah m. (BTNYKG)" [selected]
+            - paragraph [ref=e108]: Backend verification is tied to the current Fitbit session.
+        - generic [ref=e109]:
+          - article [ref=e110]:
+            - paragraph [ref=e111]: Test setup
+            - heading "Choose how to evaluate the next ECG" [level=3] [ref=e112]
+            - generic [ref=e113]:
+              - generic [ref=e114]: "Threshold: 0.85"
+              - 'slider "Threshold: 0.85" [ref=e115]': "0.85"
+            - generic [ref=e116]:
+              - text: Attempt notes
+              - textbox "Attempt notes" [ref=e117]:
+                - /placeholder: Optional local note about posture, artifacts, or capture conditions
+            - button "Run identity test" [ref=e118] [cursor=pointer]
+          - article [ref=e119]:
+            - paragraph [ref=e120]: Result
+            - heading "Latest decision" [level=3] [ref=e121]
+            - paragraph [ref=e122]: No identity test has been run yet.
+        - paragraph [ref=e124]: Collect an ECG sample, then run the identity test to see the backend decision and raw JSON.
+        - generic [ref=e125]:
+          - generic [ref=e127]:
+            - paragraph [ref=e128]: Recent history
+            - heading "Previous identity checks" [level=3] [ref=e129]
+          - table "Recent verification attempts" [ref=e131]:
+            - caption [ref=e132]: Recent verification attempts
+            - rowgroup [ref=e133]:
+              - row "Time Expected Score Threshold Result" [ref=e134]:
+                - columnheader "Time" [ref=e135]
+                - columnheader "Expected" [ref=e136]
+                - columnheader "Score" [ref=e137]
+                - columnheader "Threshold" [ref=e138]
+                - columnheader "Result" [ref=e139]
+            - rowgroup
+```

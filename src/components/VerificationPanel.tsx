@@ -11,7 +11,13 @@ type VerificationPanelProps = {
   connectedUser?: CurrentFitbitUser
   selectedParticipantId?: string
   onSelectParticipant: (id: string) => void
-  onVerify: (threshold: number, label?: 'genuine' | 'impostor', notes?: string) => void
+  onVerify: (
+    threshold: number,
+    label?: 'genuine' | 'impostor',
+    notes?: string,
+    claimedFitbitUserId?: string,
+    impostorAttempt?: boolean,
+  ) => void
   isVerifying: boolean
   latestResult: VerifyAttempt | null
   errorMessage?: string
@@ -44,10 +50,17 @@ const VerificationPanel = ({
 }: VerificationPanelProps) => {
   const [threshold, setThreshold] = useState(0.85)
   const [notes, setNotes] = useState('')
+  const [claimedFitbitUserId, setClaimedFitbitUserId] = useState('')
+  const [impostorAttempt, setImpostorAttempt] = useState(false)
 
   useEffect(() => {
     setNotes(latestResult?.notes ?? '')
   }, [latestResult?.id, latestResult?.notes])
+
+  useEffect(() => {
+    const fallbackId = connectedUser?.fitbitUserId ?? selectedParticipantId ?? ''
+    setClaimedFitbitUserId((prev) => (prev.trim().length > 0 ? prev : fallbackId))
+  }, [connectedUser?.fitbitUserId, selectedParticipantId])
 
   const verificationParticipantId = connectedUser?.fitbitUserId ?? selectedParticipantId
   const selectedParticipant = participants.find((participant) => participant.id === verificationParticipantId)
@@ -111,7 +124,13 @@ const VerificationPanel = ({
   )
 
   const handleVerify = () => {
-    onVerify(threshold, undefined, notes.trim() || undefined)
+    onVerify(
+      threshold,
+      undefined,
+      notes.trim() || undefined,
+      claimedFitbitUserId.trim() || undefined,
+      impostorAttempt,
+    )
   }
 
   return (
@@ -211,6 +230,24 @@ const VerificationPanel = ({
               onChange={(event) => setNotes(event.target.value)}
             />
           </div>
+          <div className="notes-box">
+            <label htmlFor="claimed-fitbit-user">Claimed Fitbit ID (expected identity)</label>
+            <input
+              id="claimed-fitbit-user"
+              type="text"
+              value={claimedFitbitUserId}
+              onChange={(event) => setClaimedFitbitUserId(event.target.value)}
+              placeholder="BTNYKG"
+            />
+          </div>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={impostorAttempt}
+              onChange={(event) => setImpostorAttempt(event.target.checked)}
+            />
+            <span>Mark this attempt as impostor sample</span>
+          </label>
           <button type="button" className="primary" disabled={isVerifying} onClick={handleVerify}>
             {isVerifying ? 'Running identity test...' : 'Run identity test'}
           </button>

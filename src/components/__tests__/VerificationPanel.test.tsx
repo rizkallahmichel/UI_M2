@@ -60,7 +60,7 @@ describe('VerificationPanel', () => {
     fireEvent.change(screen.getByLabelText('Attempt notes'), { target: { value: 'motion test' } })
     fireEvent.click(screen.getByRole('button', { name: /Run identity test/i }))
 
-    expect(onVerify).toHaveBeenCalledWith(0.75, undefined, 'motion test')
+    expect(onVerify).toHaveBeenCalledWith(0.75, undefined, 'motion test', 'user-1', false)
   })
 
   it('surfaces comparison results from the latest attempt', () => {
