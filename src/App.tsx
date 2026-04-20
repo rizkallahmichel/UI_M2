@@ -10,14 +10,11 @@ import {
   fetchSessions,
   fetchFitbitHrv,
   fetchVerificationLogs,
-  runContinuousVerify,
   trainModel,
   verifyAttempt,
 } from './api/client'
 import type {
   CollectSessionResponse,
-  ContinuousVerifyOptions,
-  ContinuousVerifyResponse,
   CurrentFitbitUser,
   EcgBenchmarkResponse,
   EcgSessionRecord,
@@ -35,7 +32,6 @@ const ParticipantsTab = lazy(() => import('./components/ParticipantsTab'))
 const EnrollmentWizard = lazy(() => import('./components/EnrollmentWizard'))
 const VerificationPanel = lazy(() => import('./components/VerificationPanel'))
 const ActivityLogPanel = lazy(() => import('./components/ActivityLogPanel'))
-const ContinuousMonitor = lazy(() => import('./components/ContinuousMonitor'))
 const AnalyticsTab = lazy(() => import('./components/AnalyticsTab'))
 const BackendExplorer = lazy(() => import('./components/BackendExplorer'))
 
@@ -81,7 +77,6 @@ const workspaceTabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'collect', label: 'Collect' },
   { id: 'verify', label: 'Verify' },
-  { id: 'continuous', label: 'Continuous' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'backend', label: 'Backend' },
   { id: 'logs', label: 'Logs' },
@@ -103,7 +98,6 @@ function App() {
   const [selectionMode, setSelectionMode] = useState<'auto' | 'user'>('auto')
   const [latestSession, setLatestSession] = useState<CollectSessionResponse | null>(null)
   const [latestVerify, setLatestVerify] = useState<VerifyAttempt | null>(null)
-  const [latestContinuous, setLatestContinuous] = useState<ContinuousVerifyResponse | null>(null)
   const [attemptLogs, setAttemptLogs] = useState<VerifyAttempt[]>([])
   const [lastTrainingResult, setLastTrainingResult] = useState<ModelTrainingResult | null>(null)
   const [lastBenchmarkResult, setLastBenchmarkResult] = useState<EcgBenchmarkResponse | null>(null)
@@ -248,6 +242,12 @@ function App() {
         responsePayload: session.rawPayload ?? session,
         timestamp: session.ecgStartTime,
       })
+      verifyMutation.mutate({
+        threshold: 0.85,
+        label: 'genuine',
+        notes: 'Automatic verification right after collection.',
+        alias: session.fitbitUserId,
+      })
     },
     onError: (error, payload) => {
       appendLogEntry({
@@ -350,32 +350,6 @@ function App() {
     },
   })
 
-  const continuousMutation = useMutation<ContinuousVerifyResponse, Error, ContinuousVerifyOptions>({
-    mutationFn: (payload) => runContinuousVerify(payload),
-    onSuccess: (result, payload) => {
-      setLatestContinuous(result)
-      setActiveView('continuous')
-      appendLogEntry({
-        scope: 'verification',
-        status: 'success',
-        title: 'Continuous verify completed',
-        summary: `${result.authenticated ? 'All windows passed' : 'Some windows failed'} (mean ${result.rollingMeanScore.toFixed(3)}).`,
-        requestPayload: payload,
-        responsePayload: result,
-      })
-    },
-    onError: (error, payload) => {
-      appendLogEntry({
-        scope: 'verification',
-        status: 'error',
-        title: 'Continuous verify failed',
-        summary: error.message,
-        requestPayload: payload,
-        responsePayload: { error: error.message },
-      })
-    },
-  })
-
   const benchmarkMutation = useMutation<EcgBenchmarkResponse, Error, { maxPairsPerUser?: number; testFraction?: number }>({
     mutationFn: (payload) => benchmarkEcgId(payload),
     onSuccess: (result, payload) => {
@@ -451,9 +425,8 @@ function App() {
   const latestSessionLabel = latestSession?.documentId ?? 'No sample yet'
   const helperSteps = [
     'Overview keeps participants and model controls in one place.',
-    'Collect only opens the ECG capture flow.',
+    'Collect captures ECG and automatically runs a verification pass.',
     'Verify uses the connected Fitbit account as the backend identity baseline.',
-    'Continuous runs rolling authentication windows.',
     'Analytics includes benchmark metrics and training images.',
     'Backend exposes overview, HRV, and all Fitbit raw data.',
     'Logs centralize backend payloads when you need detail.',
@@ -530,7 +503,6 @@ function App() {
                   {tab.id === 'overview' && <strong>{participants.length}</strong>}
                   {tab.id === 'collect' && <strong>{latestSession ? '1' : '0'}</strong>}
                   {tab.id === 'verify' && <strong>{attemptLogs.length}</strong>}
-                  {tab.id === 'continuous' && <strong>{latestContinuous?.samples.length ?? 0}</strong>}
                   {tab.id === 'analytics' && <strong>{lastBenchmarkResult ? '1' : '0'}</strong>}
                   {tab.id === 'backend' && <strong>{dataOverviewQuery.data?.collections.length ?? 0}</strong>}
                   {tab.id === 'logs' && <strong>{authAttemptStats.total}</strong>}
@@ -589,8 +561,7 @@ function App() {
               <p>
                 {activeView === 'overview' && 'Manage participants, aliases, and model training without leaving this view.'}
                 {activeView === 'collect' && 'Collect a new ECG sample and review its signal summary in one focused screen.'}
-                {activeView === 'verify' && 'Run the identity test against the connected Fitbit account and inspect the backend verdict.'}
-                {activeView === 'continuous' && 'Run rolling identity checks over recent Fitbit ECG windows.'}
+                {activeView === 'verify' && 'Run or review identity tests against the connected Fitbit account baseline.'}
                 {activeView === 'analytics' && 'Compare benchmark and wearable performance, then review training visuals.'}
                 {activeView === 'backend' && 'Inspect backend summaries and raw payloads for all major API endpoints.'}
                 {activeView === 'logs' && 'Inspect backend payloads and the exact operation history without cluttering the main flow.'}
@@ -605,11 +576,6 @@ function App() {
               {activeView !== 'verify' && (
                 <button type="button" className="ghost-btn" onClick={() => openView('verify')}>
                   Identity test
-                </button>
-              )}
-              {activeView !== 'continuous' && (
-                <button type="button" className="ghost-btn" onClick={() => openView('continuous')}>
-                  Continuous
                 </button>
               )}
               {activeView !== 'analytics' && (
@@ -702,15 +668,6 @@ function App() {
                   errorMessage={verifyMutation.error instanceof Error ? verifyMutation.error.message : undefined}
                   attempts={attemptLogs}
                   onGoToCollection={() => openView('collect')}
-                />
-              )}
-
-              {activeView === 'continuous' && (
-                <ContinuousMonitor
-                  latestResult={latestContinuous}
-                  isRunning={continuousMutation.isPending}
-                  onRun={(payload) => continuousMutation.mutate(payload)}
-                  errorMessage={continuousMutation.error instanceof Error ? continuousMutation.error.message : undefined}
                 />
               )}
 
