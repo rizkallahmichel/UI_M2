@@ -9,7 +9,7 @@ type BackendExplorerProps = {
   hrvData?: Record<string, unknown>
   hrvLoading?: boolean
   hrvError?: string
-  fitbitData?: Array<Record<string, unknown>>
+  fitbitData?: Record<string, unknown>
   fitbitDataLoading?: boolean
   fitbitDataError?: string
   onRefreshOverview: () => void
@@ -49,9 +49,13 @@ const BackendExplorer = ({
   onRefreshHrv,
   onRefreshFitbitData,
 }: BackendExplorerProps) => {
-  const fitbitSnapshot = (fitbitData && fitbitData.length > 0 ? fitbitData[0] : undefined) as Record<string, unknown> | undefined
-  const fitbitSections = Array.isArray(fitbitSnapshot?.sections)
-    ? (fitbitSnapshot?.sections as Array<Record<string, unknown>>)
+  const fitbitSnapshot = fitbitData
+  const fitbitSectionsRecord = asRecord(fitbitSnapshot?.sections)
+  const fitbitSections = fitbitSectionsRecord
+    ? Object.entries(fitbitSectionsRecord).map(([name, payload]) => ({
+        name,
+        payload: asRecord(payload) ?? {},
+      }))
     : []
   const compactHrv = useMemo(() => {
     const root = asRecord(hrvData)
@@ -62,17 +66,25 @@ const BackendExplorer = ({
       rawKeys: root ? Object.keys(root) : [],
     }
   }, [hrvData])
-  const compactFitbitSnapshot = useMemo(() => ({
-    dateUtc: fitbitSnapshot?.dateUtc ?? null,
-    source: fitbitSnapshot?.source ?? null,
-    sections: fitbitSections.map((section) => ({
-      section: section.section ?? 'unknown',
-      success: Boolean(section.success),
-      statusCode: section.statusCode ?? null,
-      dataKeys: asRecord(section.data) ? Object.keys(asRecord(section.data)!) : [],
-      error: section.error ?? null,
-    })),
-  }), [fitbitSections, fitbitSnapshot?.dateUtc, fitbitSnapshot?.source])
+  const compactFitbitSnapshot = useMemo(
+    () => ({
+      dateUtc: fitbitSnapshot?.dateUtc ?? null,
+      source: fitbitSnapshot?.source ?? null,
+      totals: fitbitSnapshot?.totals ?? null,
+      sections: fitbitSections.map(({ name, payload }) => {
+        const summary = asRecord(payload.summary)
+        return {
+          section: name,
+          ok: Boolean(payload.ok),
+          statusCode: payload.statusCode ?? null,
+          rootKeys: Array.isArray(summary?.rootKeys) ? summary?.rootKeys : [],
+          details: summary?.details ?? null,
+          error: payload.error ?? null,
+        }
+      }),
+    }),
+    [fitbitSections, fitbitSnapshot?.dateUtc, fitbitSnapshot?.source, fitbitSnapshot?.totals],
+  )
 
   return (
     <section className="panel backend-panel" aria-labelledby="backend-explorer-title">

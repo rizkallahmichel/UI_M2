@@ -564,19 +564,15 @@ export const fetchFitbitHrv = async (): Promise<Record<string, unknown>> => {
   return (data ?? {}) as Record<string, unknown>;
 };
 
-export const fetchAllFitbitData = async (): Promise<Array<Record<string, unknown>>> => {
+export const fetchAllFitbitData = async (): Promise<Record<string, unknown>> => {
   const { data } = await withApiError(http.get('/api/fitbit/all-data'));
   if (typeof data === 'string') {
     try {
-      return JSON.parse(data) as Array<Record<string, unknown>>;
+      return JSON.parse(data) as Record<string, unknown>;
     } catch {
-      return [{ raw: data }];
+      return { raw: data };
     }
   }
 
-  if (Array.isArray(data)) {
-    return data as Array<Record<string, unknown>>;
-  }
-
-  return [((data ?? {}) as Record<string, unknown>)];
+  return (data ?? {}) as Record<string, unknown>;
 };
