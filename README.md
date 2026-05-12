@@ -20,7 +20,9 @@ The UI project is a React + TypeScript single-page app (Vite 7, React 19, TanSta
 ## Prerequisites
 - Node.js 20+ (ensures compatibility with Vite/Playwright toolchain)
 - npm 10+ or pnpm/yarn equivalent
-- Running backend API (default at `http://localhost:5104`)
+- a running FitServer backend,
+- valid Firebase/Fitbit backend configuration,
+- network access between frontend and backend.
 
 ## Environment
 Copy `.env.local` and set the API origin if it differs from the default:

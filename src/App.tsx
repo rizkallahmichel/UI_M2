@@ -120,7 +120,11 @@ function App() {
   const verificationLogsQuery = useQuery({
     queryKey: ['verification-logs'],
     queryFn: () => fetchVerificationLogs({ limit: 400 }),
-    refetchInterval: 10000,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
   const dataOverviewQuery = useQuery({
     queryKey: ['data-overview'],
@@ -133,6 +137,11 @@ function App() {
   const fitbitAllDataQuery = useQuery({
     queryKey: ['fitbit-all-data'],
     queryFn: fetchAllFitbitData,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   const participants = useMemo(() => {
